@@ -1,0 +1,51 @@
+@import "tailwindcss";
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Playfair+Display:ital,wght@0,700;1,700&family=JetBrains+Mono:wght@400;500&display=swap');
+@import url('https://cdn.jsdelivr.net/npm/katex@0.16.8/dist/katex.min.css');
+
+@theme {
+  --font-sans: "Inter", ui-sans-serif, system-ui, sans-serif;
+  --font-serif: "Playfair Display", serif;
+  --font-mono: "JetBrains Mono", monospace;
+
+  --color-brand: #3b82f6;
+  --color-brand-dark: #1d4ed8;
+  --color-edu-bg: #f8fafc;
+}
+
+@layer base {
+  body {
+    @apply bg-edu-bg text-slate-900 font-sans;
+  }
+}
+
+.markdown-body {
+  @apply text-slate-700 leading-relaxed;
+}
+
+.markdown-body h1, .markdown-body h2, .markdown-body h3 {
+  @apply font-serif font-bold text-slate-900 mt-6 mb-4;
+}
+
+.markdown-body p {
+  @apply mb-4 text-slate-600;
+}
+
+.markdown-body ul {
+  @apply list-disc pl-6 mb-4 space-y-2;
+}
+
+.markdown-body ol {
+  @apply list-decimal pl-6 mb-4 space-y-2;
+}
+
+.markdown-body pre {
+  @apply bg-slate-50 p-4 rounded-xl border border-slate-200 overflow-x-auto my-4;
+}
+
+.katex-display {
+  @apply my-6 overflow-x-auto overflow-y-hidden py-4 px-2 bg-slate-50 rounded-2xl border border-slate-100;
+}
+
+.katex {
+  @apply text-lg;
+}
