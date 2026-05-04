@@ -10,7 +10,9 @@ export enum TutorErrorType {
   QUOTA = 'QUOTA',
   NETWORK = 'NETWORK',
   FORMAT = 'FORMAT',
-  UNKNOWN = 'UNKNOWN'
+  UNKNOWN = 'UNKNOWN',
+  VOICE_NOT_SUPPORTED = 'VOICE_NOT_SUPPORTED',
+  VOICE_PERMISSION_DENIED = 'VOICE_PERMISSION_DENIED'
 }
 
 export class TutorError extends Error {
@@ -239,6 +241,15 @@ export const geminiService = {
     } catch (e: any) {
       this.handleApiError(e, lang);
     }
+  },
+
+  async prewarmLesson(lessonTitle: string, lang: Language = 'en') {
+    // Pre-fetch 2 different difficulties for the lesson
+    const promises = [
+      this.generateProblem(lessonTitle, 'Beginner', lang),
+      this.generateProblem(lessonTitle, 'Intermediate', lang)
+    ];
+    await Promise.allSettled(promises);
   },
 
   async prewarmCache(topics: string[], lang: Language = 'en') {

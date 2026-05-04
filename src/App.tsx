@@ -29,7 +29,11 @@ import {
   Volume2,
   Trash2,
   Pencil,
-  AlertCircle
+  AlertCircle,
+  Download,
+  Bookmark,
+  Mic,
+  MicOff
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { MathRenderer } from './components/MathRenderer';
@@ -44,6 +48,7 @@ import { ScientificCalculator } from './components/ScientificCalculator';
 import { InteractiveGrapher } from './components/InteractiveGrapher';
 import { Scratchpad } from './components/Scratchpad';
 import { CurriculumBrowser } from './components/CurriculumBrowser';
+import { UnitConverter } from './components/UnitConverter';
 import { Lesson } from './constants/curriculum';
 
 type Tab = 'scan' | 'practice' | 'curriculum' | 'tools' | 'progress' | 'chat';
@@ -54,6 +59,15 @@ interface ProgressData {
   xp: number;
   level: number;
   topicMastery: Record<string, number>;
+  srsData: Record<string, {
+    lastReview: string;
+    nextReview: string;
+    interval: number; // in days
+    easeFactor: number;
+    step: number; 
+  }>;
+  downloadedLessons: string[];
+  downloadedSolutions: string[];
   history: Array<{
     id: string;
     date: string;
@@ -83,6 +97,7 @@ export default function App() {
   const [imagePreview, setImagePreview] = useState<string | null>(null);
   const [uploadError, setUploadError] = useState<string | null>(null);
   const [userQuestion, setUserQuestion] = useState('');
+  const [isListening, setIsListening] = useState(false);
   const [userRole, setUserRole] = useState<'student' | 'educator'>('student');
   const [profile, setProfile] = useState<StudentProfile>(studentService.getProfile());
   const [tutorPersonality, setTutorPersonality] = useState<TutorPersonality>(profile.personality || 'guide');
@@ -96,6 +111,7 @@ export default function App() {
   }, [tutorPersonality, profile, setProfile]);
 
   const [isOnline, setIsOnline] = useState(navigator.onLine);
+  const [downloadingItems, setDownloadingItems] = useState<Set<string>>(new Set());
 
   const [apiError, setApiError] = useState<{ message: string; type: string } | null>(null);
   
@@ -136,9 +152,100 @@ export default function App() {
       xp: 0,
       level: 1,
       topicMastery: { algebra: 0, physics: 0, geometry: 0, calculus: 0 },
+      srsData: {},
+      downloadedLessons: [],
+      downloadedSolutions: [],
       history: []
     };
   });
+
+  const toggleDownloadLesson = async (lessonId: string, lessonTitle?: string) => {
+    if (progress.downloadedLessons.includes(lessonId)) {
+      setProgress(prev => ({
+        ...prev,
+        downloadedLessons: prev.downloadedLessons.filter(id => id !== lessonId)
+      }));
+      return;
+    }
+
+    if (!isOnline) {
+      handleApiError(new TutorError(TutorErrorType.NETWORK, lang === 'en' ? "Connection required to download." : "Connexion requise pour télécharger."));
+      return;
+    }
+
+    setDownloadingItems(prev => new Set(prev).add(lessonId));
+    try {
+      if (lessonTitle) {
+        await geminiService.prewarmLesson(lessonTitle, lang);
+      }
+      setProgress(prev => ({
+        ...prev,
+        downloadedLessons: [...(prev.downloadedLessons || []), lessonId]
+      }));
+    } catch (err) {
+      handleApiError(err);
+    } finally {
+      setDownloadingItems(prev => {
+        const next = new Set(prev);
+        next.delete(lessonId);
+        return next;
+      });
+    }
+  };
+
+  const toggleDownloadSolution = async (solutionId: string) => {
+    if ((progress.downloadedSolutions || []).includes(solutionId)) {
+      setProgress(prev => ({
+        ...prev,
+        downloadedSolutions: prev.downloadedSolutions.filter(id => id !== solutionId)
+      }));
+      return;
+    }
+
+    setDownloadingItems(prev => new Set(prev).add(solutionId));
+    try {
+      // Simulate/prepare for potential asset gathering
+      await new Promise(resolve => setTimeout(resolve, 800));
+      setProgress(prev => ({
+        ...prev,
+        downloadedSolutions: [...(prev.downloadedSolutions || []), solutionId]
+      }));
+    } finally {
+      setDownloadingItems(prev => {
+        const next = new Set(prev);
+        next.delete(solutionId);
+        return next;
+      });
+    }
+  };
+
+  const downloadAllSolutions = async () => {
+    const toDownload = progress.history
+      .map(item => item.id)
+      .filter(id => !progress.downloadedSolutions.includes(id));
+
+    if (toDownload.length === 0) return;
+
+    toDownload.forEach(id => setDownloadingItems(prev => new Set(prev).add(id)));
+    
+    try {
+      // Batch simulation
+      await new Promise(resolve => setTimeout(resolve, 1500));
+      setProgress(prev => ({
+        ...prev,
+        downloadedSolutions: Array.from(new Set([
+          ...(prev.downloadedSolutions || []),
+          ...prev.history.map(item => item.id)
+        ]))
+      }));
+    } finally {
+      toDownload.forEach(id => setDownloadingItems(prev => {
+        const next = new Set(prev);
+        next.delete(id);
+        return next;
+      }));
+    }
+  };
 
   useEffect(() => {
     safeStorage.setItem('edu_progress', JSON.stringify(progress));
@@ -322,6 +429,116 @@ export default function App() {
       };
       reader.readAsDataURL(file);
     }
+  };
+
+  const handleVoiceInput = () => {
+    // Check for browser support
+    const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+    
+    if (!SpeechRecognition) {
+      handleApiError(new TutorError(TutorErrorType.VOICE_NOT_SUPPORTED, lang === 'en' ? "Voice recognition is not supported in your browser." : "La reconnaissance vocale n'est pas supportée par votre navigateur."));
+      return;
+    }
+
+    if (isListening) return;
+
+    const recognition = new SpeechRecognition();
+    recognition.lang = lang === 'en' ? 'en-US' : 'fr-FR';
+    recognition.interimResults = false;
+    recognition.maxAlternatives = 1;
+
+    recognition.onstart = () => setIsListening(true);
+    recognition.onend = () => setIsListening(false);
+    
+    recognition.onerror = (event: any) => {
+      setIsListening(false);
+      if (event.error === 'not-allowed') {
+        handleApiError(new TutorError(TutorErrorType.VOICE_PERMISSION_DENIED, lang === 'en' ? "Microphone access denied. Please check your browser permissions." : "Accès au microphone refusé. Veuillez vérifier les permissions de votre navigateur."));
+      } else {
+        console.error('Speech recognition error:', event.error);
+      }
+    };
+
+    recognition.onresult = (event: any) => {
+      const transcript = event.results[0][0].transcript;
+      if (transcript) {
+        setUserQuestion(prev => prev ? `${prev} ${transcript}` : transcript);
+      }
+    };
+
+    try {
+      recognition.start();
+    } catch (err) {
+      console.error('Failed to start recognition:', err);
+      setIsListening(false);
+    }
+  };
+
+  const handleChatVoiceInput = () => {
+    const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+    if (!SpeechRecognition) {
+      handleApiError(new TutorError(TutorErrorType.VOICE_NOT_SUPPORTED, lang === 'en' ? "Voice recognition not supported." : "Reconnaissance vocale non supportée."));
+      return;
+    }
+    if (isListening) return;
+
+    const recognition = new SpeechRecognition();
+    recognition.lang = lang === 'en' ? 'en-US' : 'fr-FR';
+    recognition.onstart = () => setIsListening(true);
+    recognition.onend = () => setIsListening(false);
+    recognition.onerror = () => setIsListening(false);
+    recognition.onresult = (event: any) => {
+      const transcript = event.results[0][0].transcript;
+      if (transcript) setChatInput(prev => prev ? `${prev} ${transcript}` : transcript);
+    };
+    recognition.start();
+  };
+
+  const updateSRS = (topic: string, quality: number) => {
+    // quality: 0 (hard/forgot), 1 (good), 2 (easy)
+    setProgress(prev => {
+      const current = prev.srsData[topic] || {
+        lastReview: new Date().toISOString(),
+        nextReview: new Date().toISOString(),
+        interval: 0,
+        easeFactor: 2.5,
+        step: 0
+      };
+
+      let { interval, easeFactor, step } = current;
+
+      if (quality >= 1) { // Correct
+        if (step === 0) interval = 1;
+        else if (step === 1) interval = 6;
+        else interval = Math.round(interval * easeFactor);
+        
+        step++;
+        // Adjust ease factor
+        const easeMod = quality === 2 ? 0.1 : quality === 1 ? 0 : -0.15;
+        easeFactor = Math.max(1.3, easeFactor + easeMod);
+      } else { // Incorrect
+        step = 0;
+        interval = 1;
+        easeFactor = Math.max(1.3, easeFactor - 0.2);
+      }
+
+      const nextReview = new Date();
+      nextReview.setDate(nextReview.getDate() + interval);
+
+      return {
+        ...prev,
+        srsData: {
+          ...(prev.srsData || {}),
+          [topic]: {
+            lastReview: new Date().toISOString(),
+            nextReview: nextReview.toISOString(),
+            interval,
+            easeFactor,
+            step
+          }
+        }
+      };
+    });
   };
 
   const handleApiError = (err: any) => {
@@ -800,20 +1017,34 @@ export default function App() {
                               ))}
                            </div>
                         </div>
-                        <textarea
-                          value={userQuestion}
-                          onChange={(e) => setUserQuestion(e.target.value)}
-                          placeholder={t.askSpecificQuestion}
-                          className="w-full bg-white border border-slate-200 rounded-2xl p-4 text-sm focus:ring-2 focus:ring-brand/20 outline-none resize-none transition-all placeholder:text-slate-400 shadow-sm"
-                          rows={3}
-                        />
+                        <div className="relative">
+                          <textarea
+                            value={userQuestion}
+                            onChange={(e) => setUserQuestion(e.target.value)}
+                            placeholder={t.askSpecificQuestion}
+                            className="w-full bg-white border border-slate-200 rounded-2xl p-4 pr-12 text-sm focus:ring-2 focus:ring-brand/20 outline-none resize-none transition-all placeholder:text-slate-400 shadow-sm"
+                            rows={3}
+                          />
+                          <button
+                            onClick={handleVoiceInput}
+                            className={cn(
+                              "absolute right-3 bottom-3 p-2 rounded-xl transition-all",
+                              isListening 
+                                ? "bg-red-500 text-white animate-pulse shadow-lg ring-4 ring-red-500/20" 
+                                : "bg-slate-50 text-slate-400 hover:text-brand hover:bg-slate-100 border border-slate-100"
+                            )}
+                            title={lang === 'en' ? "Voice Input" : "Entrée Vocale"}
+                          >
+                            {isListening ? <MicOff className="w-4 h-4" /> : <Mic className="w-4 h-4" />}
+                          </button>
+                        </div>
                       </div>
                     </motion.div>
                   )}
 
                   <button 
                     disabled={(!imagePreview && !userQuestion) || isSolving}
-                    onClick={isOnline ? handleSolve : () => handleApiError(new TutorError(TutorErrorType.NETWORK, lang === 'en' ? "You are offline. Please check your connection to solve new problems." : "Vous êtes hors ligne. Veuillez vérifier votre connexion pour résoudre de nouveaux problèmes."))}
+                    onClick={isOnline ? handleSolve : () => handleApiError(new TutorError(TutorErrorType.NETWORK, lang === 'en' ? "You are offline. New solutions require a connection. Tip: Solve problems while online to 'pre-warm' your cache for offline study!" : "Vous êtes hors ligne. Les nouvelles solutions nécessitent une connexion. Conseil : Résolvez des problèmes en ligne pour préparer votre cache pour l'étude hors ligne !"))}
                     className={cn(
                       "w-full py-5 rounded-3xl font-bold text-lg shadow-xl transition-all active:scale-95 flex items-center justify-center gap-3",
                       (imagePreview || userQuestion) && !isSolving 
@@ -964,9 +1195,17 @@ export default function App() {
                                 {topic.icon}
                             </div>
                             <h3 className="font-bold text-lg">{topic.name[lang]}</h3>
-                            <p className={cn("text-[10px] font-bold uppercase tracking-wider mt-1", practiceTopic === topic.id ? "text-white/60" : "text-slate-400")}>
-                                {progress.topicMastery[topic.id] || 0}% {t.mastery}
-                            </p>
+                            <div className="flex items-center gap-2 mt-1">
+                                <p className={cn("text-[10px] font-bold uppercase tracking-wider", practiceTopic === topic.id ? "text-white/60" : "text-slate-400")}>
+                                    {progress.topicMastery[topic.id] || 0}% {t.mastery}
+                                </p>
+                                {progress.srsData?.[topic.id] && new Date(progress.srsData[topic.id].nextReview) <= new Date() && (
+                                    <span className="px-1.5 py-0.5 bg-orange-100 text-orange-600 text-[8px] font-bold uppercase rounded flex items-center gap-1">
+                                        <History className="w-2 h-2" />
+                                        Review
+                                    </span>
+                                )}
+                            </div>
                         </button>
                     ))}
                 </div>
@@ -983,7 +1222,7 @@ export default function App() {
                                     <p className="text-slate-400 max-w-sm mx-auto mt-2">Pick a topic above and generate a personalized practice problem.</p>
                                 </div>
                                 <button 
-                                    onClick={isOnline ? handleGeneratePractice : () => handleApiError(new TutorError(TutorErrorType.NETWORK, lang === 'en' ? "New problem generation requires an internet connection." : "La génération de nouveaux problèmes nécessite une connexion Internet."))}
+                                    onClick={isOnline ? handleGeneratePractice : () => handleApiError(new TutorError(TutorErrorType.NETWORK, lang === 'en' ? "New problem generation requires a connection. Tip: Generate problems while online to save them for later study!" : "La génération de nouveaux problèmes nécessite une connexion. Conseil : Générez des problèmes en ligne pour les enregistrer pour une étude ultérieure !"))}
                                     className={cn(
                                         "px-8 py-4 font-bold rounded-2xl shadow-lg transition-all",
                                         isOnline ? "bg-brand text-white hover:bg-brand-dark" : "bg-amber-100 text-amber-700"
@@ -1029,6 +1268,45 @@ export default function App() {
                                         <Volume2 className="w-4 h-4" />
                                     </button>
                                     <MathRenderer content={practiceProblem.solution} />
+                                </div>
+
+                                <div className="pt-10 border-t border-slate-100 space-y-6">
+                                    <div className="text-center space-y-1">
+                                        <p className="font-bold text-slate-900">How did you do?</p>
+                                        <p className="text-xs text-slate-500">Your rating helps schedule the next review for this topic.</p>
+                                    </div>
+                                    <div className="grid grid-cols-3 gap-4">
+                                        <button 
+                                           onClick={() => {
+                                               updateSRS(practiceTopic, 0);
+                                               handleGeneratePractice();
+                                           }}
+                                           className="p-4 bg-red-50 hover:bg-red-100 text-red-600 rounded-[24px] border border-red-100 transition-all text-center space-y-1"
+                                        >
+                                            <div className="font-bold">Hard</div>
+                                            <div className="text-[10px] opacity-70">Review soon</div>
+                                        </button>
+                                        <button 
+                                           onClick={() => {
+                                               updateSRS(practiceTopic, 1);
+                                               handleGeneratePractice();
+                                           }}
+                                           className="p-4 bg-brand/5 hover:bg-brand/10 text-brand rounded-[24px] border border-brand/10 transition-all text-center space-y-1"
+                                        >
+                                            <div className="font-bold">Good</div>
+                                            <div className="text-[10px] opacity-70">Solid progress</div>
+                                        </button>
+                                        <button 
+                                           onClick={() => {
+                                               updateSRS(practiceTopic, 2);
+                                               handleGeneratePractice();
+                                           }}
+                                           className="p-4 bg-green-50 hover:bg-green-100 text-green-600 rounded-[24px] border border-green-100 transition-all text-center space-y-1"
+                                        >
+                                            <div className="font-bold">Easy</div>
+                                            <div className="text-[10px] opacity-70">Next level</div>
+                                        </button>
+                                    </div>
                                 </div>
                             </motion.div>
                         )}
@@ -1089,37 +1367,7 @@ export default function App() {
                             </div>
                             <h3 className="font-bold text-slate-800 uppercase tracking-wider text-sm">{t.unitConverter}</h3>
                         </div>
-                        <div className="bg-white rounded-3xl border border-slate-200 p-8 shadow-sm space-y-6">
-                             <div className="grid grid-cols-2 gap-4">
-                                <div className="space-y-2">
-                                    <label className="text-[10px] font-bold text-slate-400 uppercase">From Celsius</label>
-                                    <input type="number" placeholder="0" className="w-full bg-slate-50 border border-slate-100 rounded-xl px-4 py-3 text-sm focus:ring-2 focus:ring-brand/20 outline-none" onChange={(e) => {
-                                        const v = e.target.value;
-                                        const out = document.getElementById('temp-out');
-                                        if (out) out.innerText = v ? (parseFloat(v) * 9/5 + 32).toFixed(1) + ' °F' : '--';
-                                    }} />
-                                </div>
-                                <div className="space-y-2">
-                                    <label className="text-[10px] font-bold text-slate-400 uppercase">To Fahrenheit</label>
-                                    <div id="temp-out" className="w-full bg-slate-900 text-white rounded-xl px-4 py-3 text-sm font-bold flex items-center justify-center">--</div>
-                                </div>
-                             </div>
-
-                             <div className="grid grid-cols-2 gap-4 pt-4 border-t border-slate-100">
-                                <div className="space-y-2">
-                                    <label className="text-[10px] font-bold text-slate-400 uppercase">From Meters</label>
-                                    <input type="number" placeholder="0" className="w-full bg-slate-50 border border-slate-100 rounded-xl px-4 py-3 text-sm focus:ring-2 focus:ring-brand/20 outline-none" onChange={(e) => {
-                                        const v = e.target.value;
-                                        const out = document.getElementById('dist-out');
-                                        if (out) out.innerText = v ? (parseFloat(v) * 3.28084).toFixed(2) + ' ft' : '--';
-                                    }} />
-                                </div>
-                                <div className="space-y-2">
-                                    <label className="text-[10px] font-bold text-slate-400 uppercase">To Feet</label>
-                                    <div id="dist-out" className="w-full bg-slate-900 text-white rounded-xl px-4 py-3 text-sm font-bold flex items-center justify-center">--</div>
-                                </div>
-                             </div>
-                        </div>
+                        <UnitConverter />
                     </div>
                 </div>
             </motion.div>
@@ -1197,7 +1445,23 @@ export default function App() {
                 </div>
 
                 <div className="bg-white rounded-[40px] border border-slate-200 p-10 overflow-hidden shadow-sm">
-                    <h3 className="font-bold text-xl text-slate-900 mb-8">{t.historyTitle}</h3>
+                    <div className="flex items-center justify-between mb-8">
+                        <h3 className="font-bold text-xl text-slate-900">{t.historyTitle}</h3>
+                        {progress.history.length > 0 && (
+                            <button 
+                                onClick={downloadAllSolutions}
+                                className="flex items-center gap-2 px-4 py-2 bg-slate-50 text-slate-500 hover:text-brand hover:bg-brand/5 rounded-xl border border-slate-200 transition-all text-xs font-bold disabled:opacity-50"
+                                disabled={progress.history.some(h => downloadingItems.has(h.id))}
+                            >
+                                {progress.history.some(h => downloadingItems.has(h.id)) ? (
+                                    <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                                ) : (
+                                    <Download className="w-3.5 h-3.5" />
+                                )}
+                                {lang === 'en' ? 'Download All' : 'Tout télécharger'}
+                            </button>
+                        )}
+                    </div>
                     {progress.history.length === 0 ? (
                         <div className="py-20 text-center text-slate-400 bg-slate-50 rounded-[32px] border border-dashed border-slate-200">
                             <CalcIcon className="w-12 h-12 mx-auto mb-4 opacity-20" />
@@ -1230,7 +1494,32 @@ export default function App() {
                                     <div className="flex-1 py-1">
                                         <div className="flex items-center justify-between mb-1">
                                             <span className="text-[10px] font-bold text-brand uppercase">{item.topic}</span>
-                                            <span className="text-[10px] text-slate-400">{new Date(item.date).toLocaleDateString()}</span>
+                                            <div className="flex items-center gap-2">
+                                                <button 
+                                                    onClick={(e) => {
+                                                        e.stopPropagation();
+                                                        toggleDownloadSolution(item.id);
+                                                    }}
+                                                    disabled={downloadingItems.has(item.id)}
+                                                    className={cn(
+                                                        "p-1.5 rounded-lg transition-all",
+                                                        progress.downloadedSolutions.includes(item.id)
+                                                            ? "bg-green-100 text-green-600"
+                                                            : "text-slate-300 hover:text-brand hover:bg-slate-100",
+                                                        downloadingItems.has(item.id) && "opacity-50 cursor-wait"
+                                                    )}
+                                                    title="Save for Offline"
+                                                >
+                                                    {downloadingItems.has(item.id) ? (
+                                                        <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                                                    ) : progress.downloadedSolutions.includes(item.id) ? (
+                                                        <Bookmark className="w-3.5 h-3.5 fill-current" />
+                                                    ) : (
+                                                        <Download className="w-3.5 h-3.5" />
+                                                    )}
+                                                </button>
+                                                <span className="text-[10px] text-slate-400">{new Date(item.date).toLocaleDateString()}</span>
+                                            </div>
                                         </div>
                                         <p className="text-sm font-bold text-slate-800 line-clamp-1">{item.response?.explanation || 'Problem'}</p>
                                         <div className="mt-2 inline-block px-2 py-0.5 bg-slate-200 text-[9px] font-bold rounded-full text-slate-600 uppercase">
@@ -1305,17 +1594,31 @@ export default function App() {
                         )}
                     </div>
 
-                    <form onSubmit={handleChat} className="p-6 bg-slate-50 border-t border-slate-100 flex gap-4">
-                        <input 
-                            type="text" 
-                            value={chatInput}
-                            onChange={(e) => setChatInput(e.target.value)}
-                            placeholder={t.askTutor}
-                            className="flex-1 bg-white border border-slate-200 rounded-2xl px-6 py-4 text-sm focus:outline-none focus:ring-2 focus:ring-brand/20 transition-all font-medium"
-                        />
+                    <form onSubmit={handleChat} className="p-6 bg-slate-50 border-t border-slate-100 flex gap-3 sm:gap-4">
+                        <div className="relative flex-1">
+                          <input 
+                              type="text" 
+                              value={chatInput}
+                              onChange={(e) => setChatInput(e.target.value)}
+                              placeholder={t.askTutor}
+                              className="w-full bg-white border border-slate-200 rounded-2xl pl-6 pr-12 py-4 text-sm focus:outline-none focus:ring-2 focus:ring-brand/20 transition-all font-medium"
+                          />
+                          <button
+                            type="button"
+                            onClick={handleChatVoiceInput}
+                            className={cn(
+                              "absolute right-3 top-1/2 -translate-y-1/2 p-2 rounded-xl transition-all",
+                              isListening 
+                                ? "bg-red-500 text-white animate-pulse" 
+                                : "text-slate-400 hover:text-brand"
+                            )}
+                          >
+                            {isListening ? <MicOff className="w-4 h-4" /> : <Mic className="w-4 h-4" />}
+                          </button>
+                        </div>
                         <button 
                             disabled={!chatInput.trim() || isChatting}
-                            className="w-14 h-14 bg-brand text-white rounded-2xl flex items-center justify-center shadow-lg shadow-brand/20 hover:bg-brand-dark transition-all disabled:opacity-50"
+                            className="shrink-0 w-14 h-14 bg-brand text-white rounded-2xl flex items-center justify-center shadow-lg shadow-brand/20 hover:bg-brand-dark transition-all disabled:opacity-50"
                         >
                             <TrendingUp className="w-6 h-6 rotate-90" />
                         </button>
@@ -1332,7 +1635,14 @@ export default function App() {
                exit={{ opacity: 0, y: -20 }}
                className="max-w-7xl mx-auto"
             >
-                <CurriculumBrowser lang={lang} onSelectLesson={handleLessonSelect} />
+                <CurriculumBrowser 
+                    lang={lang} 
+                    onSelectLesson={handleLessonSelect} 
+                    downloadedLessons={progress.downloadedLessons}
+                    onToggleDownload={toggleDownloadLesson}
+                    downloadingItems={downloadingItems}
+                    isOnline={isOnline}
+                />
             </motion.div>
           )}
 

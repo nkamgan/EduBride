@@ -1,15 +1,20 @@
 import React, { useState } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { STEM_CURRICULUM, Topic, SubTopic, Lesson } from '../constants/curriculum';
-import { ChevronRight, BookOpen, Calculator, Beaker, Zap, ArrowLeft, Lightbulb } from 'lucide-react';
+import { ChevronRight, BookOpen, Calculator, Beaker, Zap, ArrowLeft, Lightbulb, Download, CheckCircle, RefreshCw } from 'lucide-react';
 import { MathRenderer } from './MathRenderer';
+import { cn } from '../lib/utils';
 
 interface CurriculumBrowserProps {
   onSelectLesson: (lesson: Lesson) => void;
   lang: 'en' | 'fr';
+  downloadedLessons: string[];
+  onToggleDownload: (lessonId: string, title?: string) => void;
+  downloadingItems: Set<string>;
+  isOnline: boolean;
 }
 
-export const CurriculumBrowser: React.FC<CurriculumBrowserProps> = ({ onSelectLesson, lang }) => {
+export const CurriculumBrowser: React.FC<CurriculumBrowserProps> = ({ onSelectLesson, lang, downloadedLessons, onToggleDownload, downloadingItems, isOnline }) => {
   const [selectedTopic, setSelectedTopic] = useState<Topic | null>(null);
   const [selectedSubTopic, setSelectedSubTopic] = useState<SubTopic | null>(null);
 
@@ -101,7 +106,23 @@ export const CurriculumBrowser: React.FC<CurriculumBrowserProps> = ({ onSelectLe
                     <h4 className="font-bold text-slate-900">{sub.title}</h4>
                     <p className="text-slate-500 text-sm">{sub.lessons.length} lessons</p>
                   </div>
-                  <ChevronRight className="w-5 h-5 text-slate-300 group-hover:translate-x-1 transition-all" />
+                  <div className="flex items-center gap-4">
+                    <button 
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        if (isOnline) sub.lessons.forEach(l => onToggleDownload(l.id, l.title));
+                      }}
+                      className={cn(
+                        "p-3 rounded-2xl border transition-all shadow-sm",
+                        isOnline ? "bg-slate-50 text-slate-400 hover:text-brand border-slate-100" : "bg-slate-50 text-slate-200 border-slate-100 cursor-not-allowed"
+                      )}
+                      disabled={!isOnline}
+                      title={isOnline ? "Download Section for Offline" : "Online Required for Download"}
+                    >
+                      <Download className="w-4 h-4" />
+                    </button>
+                    <ChevronRight className="w-5 h-5 text-slate-300 group-hover:translate-x-1 transition-all" />
+                  </div>
                 </button>
               ))}
             </div>
@@ -126,8 +147,35 @@ export const CurriculumBrowser: React.FC<CurriculumBrowserProps> = ({ onSelectLe
               {selectedSubTopic.lessons.map((lesson) => (
                 <div key={lesson.id} className="bg-white p-8 rounded-[40px] border border-slate-200 shadow-sm space-y-6 flex flex-col justify-between">
                   <div>
-                    <div className="w-10 h-10 bg-brand/10 rounded-full flex items-center justify-center text-brand mb-4">
-                      <Lightbulb className="w-5 h-5" />
+                    <div className="flex items-center justify-between gap-4 mb-4">
+                      <div className="w-10 h-10 bg-brand/10 rounded-full flex items-center justify-center text-brand">
+                        <Lightbulb className="w-5 h-5" />
+                      </div>
+                      <button 
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          onToggleDownload(lesson.id, lesson.title);
+                        }}
+                        disabled={downloadingItems.has(lesson.id) || (!isOnline && !downloadedLessons.includes(lesson.id))}
+                        className={cn(
+                          "p-2 rounded-xl border transition-all",
+                          downloadedLessons.includes(lesson.id) 
+                            ? "bg-green-50 border-green-200 text-green-600" 
+                            : !isOnline 
+                              ? "bg-slate-50 border-slate-100 text-slate-200 cursor-not-allowed"
+                              : "bg-white border-slate-200 text-slate-400 hover:text-brand hover:border-brand/30",
+                          downloadingItems.has(lesson.id) && "opacity-50 cursor-wait"
+                        )}
+                        title={downloadedLessons.includes(lesson.id) ? "Saved for Offline" : isOnline ? "Download for Offline" : "Online Required"}
+                      >
+                        {downloadingItems.has(lesson.id) ? (
+                          <RefreshCw className="w-5 h-5 animate-spin" />
+                        ) : downloadedLessons.includes(lesson.id) ? (
+                          <CheckCircle className="w-5 h-5" />
+                        ) : (
+                          <Download className="w-5 h-5" />
+                        )}
+                      </button>
                     </div>
                     <h4 className="text-xl font-bold text-slate-900 mb-3">
                       <MathRenderer content={lesson.title} />
