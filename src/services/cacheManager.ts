@@ -1,5 +1,6 @@
 import { get, set, keys, del, clear } from 'idb-keyval';
 import CryptoJS from 'crypto-js';
+import { safeStorage } from '../lib/storage';
 
 export interface CacheEntry<T> {
   timestamp: number;
@@ -8,7 +9,6 @@ export interface CacheEntry<T> {
 }
 
 const CACHE_VERSION = '1.1';
-const MAX_LOCAL_CACHE_SIZE = 50; // Max items in localStorage before falling back or pruning
 
 export const cacheManager = {
   /**
@@ -34,7 +34,7 @@ export const cacheManager = {
       console.warn('IDB save failed, falling back to localStorage', err);
       // Fallback for smaller entries
       if (typeof data === 'object' && JSON.stringify(data).length < 2000) {
-        localStorage.setItem(key, JSON.stringify(entry));
+        safeStorage.setItem(key, JSON.stringify(entry));
       }
     }
   },
@@ -50,8 +50,14 @@ export const cacheManager = {
       // Fallback to localStorage if not in IDB
       let finalEntry = entry;
       if (!finalEntry) {
-        const local = localStorage.getItem(key);
-        if (local) finalEntry = JSON.parse(local);
+        const local = safeStorage.getItem(key);
+        if (local) {
+          try {
+            finalEntry = JSON.parse(local);
+          } catch {
+            safeStorage.removeItem(key);
+          }
+        }
       }
 
       if (finalEntry && finalEntry.version === CACHE_VERSION) {
@@ -70,14 +76,14 @@ export const cacheManager = {
 
   async remove(key: string) {
     await del(key);
-    localStorage.removeItem(key);
+    safeStorage.removeItem(key);
   },
 
   async clearAll() {
     await clear();
     // Only clear edu_cache keys from localStorage
     Object.keys(localStorage).forEach(key => {
-      if (key.startsWith('edu_cache_')) localStorage.removeItem(key);
+      if (key.startsWith('edu_cache_')) safeStorage.removeItem(key);
     });
   },
 
@@ -94,3 +100,4 @@ export const cacheManager = {
     };
   }
 };
+

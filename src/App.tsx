@@ -28,15 +28,17 @@ import {
   Sparkles,
   Volume2,
   Trash2,
-  Pencil
+  Pencil,
+  AlertCircle
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { MathRenderer } from './components/MathRenderer';
 import { GraphGenerator } from './components/GraphGenerator';
-import { geminiService, Language, TutorResponse, TutorPersonality } from './services/geminiService';
+import { geminiService, Language, TutorResponse, TutorPersonality, TutorError, TutorErrorType } from './services/geminiService';
 import { studentService, StudentProfile } from './lib/studentService';
 import { EducatorDashboard } from './components/EducatorDashboard';
 import { cacheManager } from './services/cacheManager';
+import { safeStorage } from './lib/storage';
 import { cn } from './lib/utils';
 import { ScientificCalculator } from './components/ScientificCalculator';
 import { InteractiveGrapher } from './components/InteractiveGrapher';
@@ -85,6 +87,16 @@ export default function App() {
   const [profile, setProfile] = useState<StudentProfile>(studentService.getProfile());
   const [tutorPersonality, setTutorPersonality] = useState<TutorPersonality>(profile.personality || 'guide');
   
+  useEffect(() => {
+    if (tutorPersonality !== profile.personality) {
+      const updatedProfile = { ...profile, personality: tutorPersonality };
+      setProfile(updatedProfile);
+      studentService.saveProfile(updatedProfile);
+    }
+  }, [tutorPersonality, profile, setProfile]);
+
+  const [apiError, setApiError] = useState<{ message: string; type: string } | null>(null);
+  
   // Practice State
   const [practiceTopic, setPracticeTopic] = useState('algebra');
   const [difficulty, setDifficulty] = useState<'Beginner' | 'Intermediate' | 'Advanced'>('Beginner');
@@ -92,7 +104,20 @@ export default function App() {
   const [isGenerating, setIsGenerating] = useState(false);
 
   // Chat State
-  const [chatHistory, setChatHistory] = useState<any[]>([]);
+  const [chatHistory, setChatHistory] = useState<any[]>(() => {
+    const saved = safeStorage.getItem('edu_chat_history');
+    return saved ? JSON.parse(saved) : [];
+  });
+
+  useEffect(() => {
+    safeStorage.setItem('edu_chat_history', JSON.stringify(chatHistory));
+  }, [chatHistory]);
+
+  const clearChatHistory = () => {
+    setChatHistory([]);
+    safeStorage.removeItem('edu_chat_history');
+  };
+
   const [chatInput, setChatInput] = useState('');
   const [isChatting, setIsChatting] = useState(false);
 
@@ -102,7 +127,7 @@ export default function App() {
 
   // Progress State
   const [progress, setProgress] = useState<ProgressData>(() => {
-    const saved = localStorage.getItem('edu_progress');
+    const saved = safeStorage.getItem('edu_progress');
     return saved ? JSON.parse(saved) : {
       totalSolved: 0,
       streak: 1,
@@ -114,7 +139,7 @@ export default function App() {
   });
 
   useEffect(() => {
-    localStorage.setItem('edu_progress', JSON.stringify(progress));
+    safeStorage.setItem('edu_progress', JSON.stringify(progress));
   }, [progress]);
 
   const [showDiagnostics, setShowDiagnostics] = useState(false);
@@ -135,14 +160,14 @@ export default function App() {
     idbEntries: 0,
     localEntries: 0,
     isOnline: navigator.onLine,
-    lastSync: localStorage.getItem('edu_last_sync') || 'Never',
-    errors: JSON.parse(localStorage.getItem('edu_error_logs') || '[]') as string[]
+    lastSync: safeStorage.getItem('edu_last_sync') || 'Never',
+    errors: JSON.parse(safeStorage.getItem('edu_error_logs') || '[]') as string[]
   });
 
   const logOfflineError = (msg: string) => {
-    const errorLogs = JSON.parse(localStorage.getItem('edu_error_logs') || '[]');
+    const errorLogs = JSON.parse(safeStorage.getItem('edu_error_logs') || '[]');
     const newLogs = [msg, ...errorLogs].slice(0, 5);
-    localStorage.setItem('edu_error_logs', JSON.stringify(newLogs));
+    safeStorage.setItem('edu_error_logs', JSON.stringify(newLogs));
     setDiagnostics(prev => ({ ...prev, errors: newLogs }));
   };
 
@@ -154,7 +179,7 @@ export default function App() {
       for (let i = 0; i < localStorage.length; i++) {
         const key = localStorage.key(i);
         if (!key) continue;
-        const value = localStorage.getItem(key) || '';
+        const value = safeStorage.getItem(key) || '';
         totalSize += key.length + value.length;
       }
 
@@ -201,12 +226,12 @@ export default function App() {
   const t = useMemo(() => ({
     en: {
       appName: 'EduBridge',
-      tagline: 'Gemma 4 Good AI Tutor',
+      tagline: 'STEM Tutor (Based on Gemma 4)',
       scanTitle: 'Solve with a Photo',
       scanDesc: 'Snap a photo of your handwritten math or physics problem.',
       uploadBtn: 'Upload Image',
       solveBtn: 'AI Solve Problem',
-      solving: 'Analyzing with Gemma 4...',
+      solving: 'Analyzing with Gemma...',
       curriculumTitle: 'Structured Curriculum',
       practiceTitle: 'Adaptive Practice',
       progressTitle: 'My Learning Progress',
@@ -233,12 +258,12 @@ export default function App() {
     },
     fr: {
       appName: 'EduBridge',
-      tagline: 'Tuteur IA Gemma 4 Good',
+      tagline: 'Tuteur STEM (Basé sur Gemma 4)',
       scanTitle: 'Résoudre avec une Photo',
       scanDesc: 'Prenez une photo de votre problème de maths ou physique.',
       uploadBtn: 'Charger une Image',
       solveBtn: 'Résoudre par l\'IA',
-      solving: 'Analyse par Gemma 4...',
+      solving: 'Analyse par Gemma...',
       curriculumTitle: 'Programme Structuré',
       practiceTitle: 'Pratique Adaptative',
       progressTitle: 'Mes Progrès',
@@ -294,9 +319,24 @@ export default function App() {
     }
   };
 
+  const handleApiError = (err: any) => {
+    console.error(err);
+    if (err instanceof TutorError) {
+      setApiError({ message: err.message, type: err.type });
+    } else {
+      setApiError({ 
+        message: lang === 'en' ? "An unexpected error occurred. Please try again." : "Une erreur inattendue s'est produite. Veuillez réessayer.", 
+        type: 'UNKNOWN' 
+      });
+    }
+    // Auto-clear error after 5 seconds
+    setTimeout(() => setApiError(null), 5000);
+  };
+
   const handleSolve = async () => {
     if (!imagePreview && !userQuestion) return;
     setIsSolving(true);
+    setApiError(null);
     try {
       const b64 = imagePreview ? imagePreview.split(',')[1] : null;
       const result = await geminiService.solveProblem(b64, lang, userQuestion, tutorPersonality);
@@ -331,7 +371,7 @@ export default function App() {
         };
       });
     } catch (err) {
-      console.error(err);
+      handleApiError(err);
     } finally {
       setIsSolving(false);
     }
@@ -339,11 +379,12 @@ export default function App() {
 
   const handleGeneratePractice = async () => {
     setIsGenerating(true);
+    setApiError(null);
     try {
       const problem = await geminiService.generateProblem(practiceTopic, difficulty, lang);
       setPracticeProblem(problem);
     } catch (err) {
-      console.error(err);
+      handleApiError(err);
     } finally {
       setIsGenerating(false);
     }
@@ -357,12 +398,13 @@ export default function App() {
     setChatInput('');
     setChatHistory(prev => [...prev, { role: 'user', parts: [{ text: userMessage }] }]);
     setIsChatting(true);
+    setApiError(null);
 
     try {
-      const response = await geminiService.getChatResponse(userMessage, chatHistory, lang);
+      const response = await geminiService.getChatResponse(userMessage, chatHistory, lang, tutorPersonality);
       setChatHistory(prev => [...prev, { role: 'model', parts: [{ text: response }] }]);
     } catch (err) {
-      console.error(err);
+      handleApiError(err);
     } finally {
       setIsChatting(false);
     }
@@ -370,11 +412,12 @@ export default function App() {
 
   const handleGetAdvice = async () => {
     setIsGettingAdvice(true);
+    setApiError(null);
     try {
       const advice = await geminiService.getStudyAdvice(progress, lang);
       setStudyAdvice(advice);
     } catch (err) {
-      console.error(err);
+      handleApiError(err);
     } finally {
       setIsGettingAdvice(false);
     }
@@ -499,6 +542,9 @@ export default function App() {
                 </span>
               </div>
             </div>
+            <p className="mt-4 text-[9px] text-slate-400 font-medium leading-tight">
+              Gemma is a trademark of Google LLC.
+            </p>
           </div>
         </div>
 
@@ -594,7 +640,36 @@ export default function App() {
         {userRole === 'educator' ? (
           <EducatorDashboard lang={lang} />
         ) : (
-          <>
+          <div className="relative">
+            <AnimatePresence>
+              {apiError && (
+                <motion.div 
+                  initial={{ opacity: 0, y: -20, scale: 0.95 }}
+                  animate={{ opacity: 1, y: 0, scale: 1 }}
+                  exit={{ opacity: 0, y: -20, scale: 0.95 }}
+                  className="sticky top-0 z-[100] mb-6 p-4 bg-white border border-red-200 rounded-3xl shadow-xl flex items-center justify-between gap-4 max-w-2xl mx-auto"
+                >
+                  <div className="flex items-center gap-3">
+                    <div className="w-10 h-10 bg-red-50 rounded-2xl flex items-center justify-center text-red-500">
+                      <AlertCircle className="w-5 h-5" />
+                    </div>
+                    <div>
+                      <p className="text-[10px] font-bold text-red-400 uppercase tracking-widest leading-none mb-1">
+                        {apiError.type === 'SAFETY' ? 'Safety Block' : apiError.type === 'QUOTA' ? 'Study Limit' : apiError.type === 'NETWORK' ? 'Network Error' : 'Tutor Error'}
+                      </p>
+                      <p className="text-sm font-bold text-slate-800">{apiError.message}</p>
+                    </div>
+                  </div>
+                  <button 
+                    onClick={() => setApiError(null)}
+                    className="p-2 hover:bg-slate-50 rounded-xl transition-colors"
+                  >
+                    <X className="w-4 h-4 text-slate-400" />
+                  </button>
+                </motion.div>
+              )}
+            </AnimatePresence>
+
             {/* Mobile Header Top */}
         <div className="md:hidden flex items-center justify-between mb-8">
             <div className="flex items-center gap-2">
@@ -692,8 +767,8 @@ export default function App() {
                              <Sparkles className="w-4 h-4 text-brand" />
                              <span className="text-[10px] font-bold uppercase tracking-widest">{lang === 'en' ? 'Tutor Personality' : 'Personnalité du Tuteur'}</span>
                            </div>
-                           <div className="flex gap-1">
-                              {(['guide', 'scientist', 'coach'] as TutorPersonality[]).map(p => (
+                           <div className="flex flex-wrap gap-1">
+                              {(['guide', 'scientist', 'coach', 'socratic', 'visual'] as TutorPersonality[]).map(p => (
                                 <button
                                   key={p}
                                   onClick={() => setTutorPersonality(p)}
@@ -702,7 +777,7 @@ export default function App() {
                                     tutorPersonality === p ? "bg-brand text-white" : "bg-slate-100 text-slate-500 hover:bg-slate-200"
                                   )}
                                 >
-                                  {p}
+                                  {p === 'socratic' ? (lang === 'en' ? 'Socratic' : 'Socratique') : p === 'visual' ? (lang === 'en' ? 'Visual' : 'Visuel') : p}
                                 </button>
                               ))}
                            </div>
@@ -1150,9 +1225,21 @@ export default function App() {
                exit={{ opacity: 0, y: -20 }}
                className="max-w-4xl mx-auto h-[70vh] flex flex-col"
              >
-                <div className="mb-8">
-                    <h2 className="text-4xl md:text-5xl font-serif font-bold tracking-tight text-slate-900">{t.chatTutor}</h2>
-                    <p className="text-slate-500">Ask questions about concepts, formulas, or homework.</p>
+                <div className="mb-8 flex items-center justify-between">
+                    <div>
+                        <h2 className="text-4xl md:text-5xl font-serif font-bold tracking-tight text-slate-900">{t.chatTutor}</h2>
+                        <p className="text-slate-500">Ask questions about concepts, formulas, or homework.</p>
+                    </div>
+                    {chatHistory.length > 0 && (
+                        <button 
+                            onClick={clearChatHistory}
+                            className="p-3 bg-red-50 text-red-500 rounded-2xl hover:bg-red-100 transition-all flex items-center gap-2 font-bold text-sm"
+                            title="Clear Chat History"
+                        >
+                            <Trash2 className="w-4 h-4" />
+                            <span className="hidden sm:inline">Clear History</span>
+                        </button>
+                    )}
                 </div>
 
                 <div className="flex-1 bg-white rounded-[40px] border border-slate-200 shadow-sm flex flex-col overflow-hidden">
@@ -1274,13 +1361,13 @@ export default function App() {
                              <p className="text-xs text-slate-400">Simplify complex STEM text</p>
                            </div>
                        </div>
-                       <TextSummarizer lang={lang} />
+                       <TextSummarizer lang={lang} onApiError={handleApiError} />
                   </div>
               </div>
             </motion.div>
           )}
         </AnimatePresence>
-          </>
+          </div>
         )}
       </main>
     </div>
@@ -1324,7 +1411,7 @@ function StatCard({ label, value, icon }: { label: string, value: string, icon: 
     );
 }
 
-function TextSummarizer({ lang }: { lang: Language }) {
+function TextSummarizer({ lang, onApiError }: { lang: Language, onApiError: (err: any) => void }) {
     const [input, setInput] = useState('');
     const [summary, setSummary] = useState('');
     const [loading, setLoading] = useState(false);
@@ -1334,9 +1421,9 @@ function TextSummarizer({ lang }: { lang: Language }) {
         setLoading(true);
         try {
             const result = await geminiService.summarizeText(input, lang);
-            setSummary(result);
+            setSummary(result || '');
         } catch (err) {
-            console.error(err);
+            onApiError(err);
         } finally {
             setLoading(false);
         }

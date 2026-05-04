@@ -1,6 +1,6 @@
 {
-  "name": "EduBridge: Gemma 4 Good AI Tutor",
-  "description": "An offline-first, multilingual AI STEM tutor powered by Gemma 4. Snap photos of handwritten problems for step-by-step solutions, adaptive practice, and interactive tools.",
+  "name": "EduBridge: AI STEM Tutor",
+  "description": "An offline-first, multilingual AI STEM tutor. Snap photos of handwritten problems for step-by-step solutions, adaptive practice, and interactive tools. Based on Gemma 4.",
   "requestFramePermissions": [
     "camera"
   ]

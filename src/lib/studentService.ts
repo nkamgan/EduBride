@@ -1,3 +1,4 @@
+import { safeStorage } from './storage';
 
 export interface TopicProgress {
   topicId: string;
@@ -8,7 +9,7 @@ export interface TopicProgress {
 export interface StudentProfile {
   name: string;
   level: 'beginner' | 'intermediate' | 'advanced';
-  personality: 'coach' | 'scientist' | 'guide';
+  personality: 'coach' | 'scientist' | 'guide' | 'socratic' | 'visual';
   progress: TopicProgress[];
   lastActive: string;
   streak: number;
@@ -18,7 +19,7 @@ const STORAGE_KEY = 'edubridge_profile';
 
 export const studentService = {
   getProfile(): StudentProfile {
-    const stored = localStorage.getItem(STORAGE_KEY);
+    const stored = safeStorage.getItem(STORAGE_KEY);
     if (!stored) {
       const defaultProfile: StudentProfile = {
         name: 'Student',
@@ -35,7 +36,7 @@ export const studentService = {
   },
 
   saveProfile(profile: StudentProfile) {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(profile));
+    safeStorage.setItem(STORAGE_KEY, JSON.stringify(profile));
   },
 
   updateProgress(topicId: string, lessonId: string) {
