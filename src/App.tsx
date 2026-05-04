@@ -7,10 +7,7 @@ import React, { useState, useRef, useEffect, useMemo } from 'react';
 import { 
   Camera, 
   Upload, 
-  CameraOff,
   RefreshCw,
-  Lock,
-  Unlock,
   Languages, 
   BookOpen, 
   Calculator as CalcIcon, 
@@ -36,7 +33,9 @@ import {
 import { motion, AnimatePresence } from 'motion/react';
 import { MathRenderer } from './components/MathRenderer';
 import { GraphGenerator } from './components/GraphGenerator';
-import { geminiService, Language, TutorResponse } from './services/geminiService';
+import { geminiService, Language, TutorResponse, TutorPersonality } from './services/geminiService';
+import { studentService, StudentProfile } from './lib/studentService';
+import { EducatorDashboard } from './components/EducatorDashboard';
 import { cacheManager } from './services/cacheManager';
 import { cn } from './lib/utils';
 import { ScientificCalculator } from './components/ScientificCalculator';
@@ -82,34 +81,9 @@ export default function App() {
   const [imagePreview, setImagePreview] = useState<string | null>(null);
   const [uploadError, setUploadError] = useState<string | null>(null);
   const [userQuestion, setUserQuestion] = useState('');
-  
-  // Camera State
-  const [isCameraActive, setIsCameraActive] = useState(false);
-  const [isFocusLocked, setIsFocusLocked] = useState(false);
-  const [cameraStream, setCameraStream] = useState<MediaStream | null>(null);
-  const videoRef = useRef<HTMLVideoElement>(null);
-  const canvasRef = useRef<HTMLCanvasElement>(null);
-
-  const toggleFocusLock = async () => {
-    if (!cameraStream) return;
-    const track = cameraStream.getVideoTracks()[0];
-    const capabilities = track.getCapabilities() as any;
-
-    if (!capabilities.focusMode) {
-      console.warn("Focus mode adjustments not supported on this device/browser");
-      return;
-    }
-
-    try {
-      const newLockedState = !isFocusLocked;
-      await track.applyConstraints({
-        advanced: [{ focusMode: newLockedState ? 'manual' : 'continuous' }]
-      } as any);
-      setIsFocusLocked(newLockedState);
-    } catch (err) {
-      console.error("Failed to apply focus constraints:", err);
-    }
-  };
+  const [userRole, setUserRole] = useState<'student' | 'educator'>('student');
+  const [profile, setProfile] = useState<StudentProfile>(studentService.getProfile());
+  const [tutorPersonality, setTutorPersonality] = useState<TutorPersonality>(profile.personality || 'guide');
   
   // Practice State
   const [practiceTopic, setPracticeTopic] = useState('algebra');
@@ -150,6 +124,9 @@ export default function App() {
       ? `Explain the concept of ${lesson.title}: ${lesson.description}. Key points: ${lesson.keyPoints.join(', ')}.`
       : `Expliquez le concept de ${lesson.title}: ${lesson.description}. Points clés: ${lesson.keyPoints.join(', ')}.`
     );
+    // Move solve logic trigger if needed or just set context
+    studentService.updateProgress('general', lesson.id);
+    setProfile(studentService.getProfile());
   };
 
   const [diagnostics, setDiagnostics] = useState({
@@ -219,12 +196,6 @@ export default function App() {
     }
   };
 
-  useEffect(() => {
-    if (activeTab !== 'scan') {
-      stopCamera();
-    }
-  }, [activeTab]);
-
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const t = useMemo(() => ({
@@ -258,9 +229,6 @@ export default function App() {
       getAdvice: 'Get AI Insights',
       explaining: 'Gemma is thinking...',
       speak: 'Read Out Loud',
-      cameraBtn: 'Use Camera',
-      captureBtn: 'Capture Problem',
-      closeCamera: 'Close Camera',
       askSpecificQuestion: 'Ask a specific question about this problem (optional)...',
     },
     fr: {
@@ -293,9 +261,6 @@ export default function App() {
       getAdvice: 'Obtenir des conseils IA',
       explaining: 'Gemma réfléchit...',
       speak: 'Lire à voix haute',
-      cameraBtn: 'Utiliser Caméra',
-      captureBtn: 'Capturer Problème',
-      closeCamera: 'Fermer Caméra',
       askSpecificQuestion: 'Posez une question spécifique sur ce problème (facultatif)...',
     }
   }[lang]), [lang]);
@@ -329,56 +294,12 @@ export default function App() {
     }
   };
 
-  const startCamera = async () => {
-    try {
-      const stream = await navigator.mediaDevices.getUserMedia({ 
-        video: { facingMode: 'environment', width: { ideal: 1280 }, height: { ideal: 720 } } 
-      });
-      setCameraStream(stream);
-      if (videoRef.current) {
-        videoRef.current.srcObject = stream;
-      }
-      setIsCameraActive(true);
-      setUploadError(null);
-    } catch (err) {
-      console.error("Camera error:", err);
-      setUploadError(lang === 'en' ? 'Could not access camera.' : 'Impossible d\'accéder à la caméra.');
-    }
-  };
-
-  const stopCamera = () => {
-    if (cameraStream) {
-      cameraStream.getTracks().forEach(track => track.stop());
-      setCameraStream(null);
-    }
-    setIsCameraActive(false);
-    setIsFocusLocked(false);
-  };
-
-  const capturePhoto = () => {
-    if (videoRef.current && canvasRef.current) {
-      const video = videoRef.current;
-      const canvas = canvasRef.current;
-      
-      canvas.width = video.videoWidth;
-      canvas.height = video.videoHeight;
-      const ctx = canvas.getContext('2d');
-      if (ctx) {
-        ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
-        const dataUrl = canvas.toDataURL('image/jpeg');
-        setImagePreview(dataUrl);
-        setCurrentSolution(null);
-        stopCamera();
-      }
-    }
-  };
-
   const handleSolve = async () => {
     if (!imagePreview && !userQuestion) return;
     setIsSolving(true);
     try {
       const b64 = imagePreview ? imagePreview.split(',')[1] : null;
-      const result = await geminiService.solveProblem(b64, lang, userQuestion);
+      const result = await geminiService.solveProblem(b64, lang, userQuestion, tutorPersonality);
       setCurrentSolution(result);
       
       setProgress(prev => {
@@ -489,6 +410,20 @@ export default function App() {
           </div>
 
           <nav className="space-y-2 mb-10">
+            <div className="flex p-1 bg-slate-100 rounded-xl mb-4">
+              <button 
+                onClick={() => setUserRole('student')}
+                className={cn("flex-1 py-2 text-xs font-bold rounded-lg transition-all", userRole === 'student' ? "bg-white shadow-sm text-slate-900" : "text-slate-500")}
+              >
+                Student
+              </button>
+              <button 
+                onClick={() => setUserRole('educator')}
+                className={cn("flex-1 py-2 text-xs font-bold rounded-lg transition-all", userRole === 'educator' ? "bg-white shadow-sm text-slate-900" : "text-slate-500")}
+              >
+                Educator
+              </button>
+            </div>
             <NavItem 
               icon={<Camera className="w-5 h-5"/>} 
               label={t.scanTitle} 
@@ -656,7 +591,11 @@ export default function App() {
 
       {/* Main Content Area */}
       <main className="flex-1 p-6 md:p-12 overflow-y-auto w-full">
-        {/* Mobile Header Top */}
+        {userRole === 'educator' ? (
+          <EducatorDashboard lang={lang} />
+        ) : (
+          <>
+            {/* Mobile Header Top */}
         <div className="md:hidden flex items-center justify-between mb-8">
             <div className="flex items-center gap-2">
                 <div className="w-10 h-10 bg-brand rounded-xl flex items-center justify-center text-white">
@@ -683,25 +622,13 @@ export default function App() {
                 <p className="text-lg text-slate-500 leading-relaxed">{t.scanDesc}</p>
               </div>
 
-              <div className="grid grid-cols-1 lg:grid-cols-12 gap-10">
-                {/* Camera/Upload Section */}
+              <div className="grid grid-cols-1 gap-6">
+                {/* Image Upload Section */}
                 <div className="lg:col-span-12 xl:col-span-5 space-y-6">
                   <div className="flex gap-3">
                     <button 
-                      onClick={() => isCameraActive ? stopCamera() : startCamera()}
-                      className={cn(
-                        "flex-1 py-4 px-6 rounded-3xl font-bold flex items-center justify-center gap-2 transition-all",
-                        isCameraActive 
-                          ? "bg-red-50 text-red-500 border border-red-100" 
-                          : "bg-brand text-white shadow-lg shadow-brand/20 hover:scale-[1.02]"
-                      )}
-                    >
-                      {isCameraActive ? <CameraOff className="w-5 h-5"/> : <Camera className="w-5 h-5"/>}
-                      {isCameraActive ? t.closeCamera : t.cameraBtn}
-                    </button>
-                    <button 
-                      onClick={() => { stopCamera(); fileInputRef.current?.click(); }}
-                      className="flex-1 py-4 px-6 bg-slate-50 text-slate-600 rounded-3xl font-bold border border-slate-100 flex items-center justify-center gap-2 hover:bg-slate-100 transition-all"
+                      onClick={() => fileInputRef.current?.click()}
+                      className="flex-1 py-4 px-6 bg-brand text-white shadow-lg shadow-brand/20 rounded-3xl font-bold flex items-center justify-center gap-2 hover:scale-[1.02] transition-all"
                     >
                       <Upload className="w-5 h-5"/>
                       {t.uploadBtn}
@@ -711,39 +638,10 @@ export default function App() {
                   <div 
                     className={cn(
                        "relative aspect-video lg:aspect-[4/3] w-full rounded-[30px] border-4 border-dashed border-slate-200 bg-slate-50 overflow-hidden group transition-all",
-                       (imagePreview || isCameraActive) && "border-solid border-brand/20 bg-white"
+                       imagePreview && "border-solid border-brand/20 bg-white"
                     )}
                   >
-                    {isCameraActive ? (
-                      <div className="absolute inset-0 bg-black">
-                        <video 
-                          ref={videoRef} 
-                          autoPlay 
-                          playsInline 
-                          className="w-full h-full object-cover"
-                        />
-                        <div className="absolute top-6 right-6 flex flex-col gap-3">
-                          <button 
-                            onClick={toggleFocusLock}
-                            className={cn(
-                              "p-3 rounded-2xl backdrop-blur-md transition-all shadow-lg border",
-                              isFocusLocked ? "bg-brand text-white border-brand" : "bg-white/20 text-white border-white/30"
-                            )}
-                            title={isFocusLocked ? "Unlock Focus" : "Lock Focus"}
-                          >
-                            {isFocusLocked ? <Lock className="w-5 h-5"/> : <Unlock className="w-5 h-5"/>}
-                          </button>
-                        </div>
-                        <div className="absolute bottom-6 left-0 right-0 flex justify-center">
-                          <button 
-                            onClick={capturePhoto}
-                            className="w-16 h-16 bg-white rounded-full flex items-center justify-center shadow-2xl border-4 border-slate-200 active:scale-90 transition-transform"
-                          >
-                            <div className="w-12 h-12 bg-white rounded-full border-2 border-brand" />
-                          </button>
-                        </div>
-                      </div>
-                    ) : imagePreview ? (
+                    {imagePreview ? (
                       <div className="relative w-full h-full">
                          <img src={imagePreview} alt="Problem" className="w-full h-full object-contain p-8" />
                          <button 
@@ -761,7 +659,7 @@ export default function App() {
                     ) : (
                       <div onClick={() => fileInputRef.current?.click()} className="absolute inset-0 flex flex-col items-center justify-center p-10 text-center space-y-4 cursor-pointer">
                         <div className="w-20 h-20 bg-brand/10 rounded-full flex items-center justify-center text-brand mb-2 group-hover:scale-110 transition-transform">
-                          <Camera className="w-10 h-10" />
+                          <Upload className="w-10 h-10" />
                         </div>
                         <div>
                            <p className="text-lg font-bold text-slate-800">{t.uploadBtn}</p>
@@ -769,7 +667,6 @@ export default function App() {
                         </div>
                       </div>
                     )}
-                    <canvas ref={canvasRef} className="hidden" />
                     <input type="file" ref={fileInputRef} className="hidden" accept="image/jpeg,image/png,image/webp" onChange={handleImageUpload} />
                   </div>
 
@@ -787,19 +684,37 @@ export default function App() {
                     <motion.div 
                       initial={{ opacity: 0, y: 10 }}
                       animate={{ opacity: 1, y: 0 }}
-                      className="space-y-3"
+                      className="space-y-4"
                     >
-                      <div className="flex items-center gap-2 text-slate-500 px-2">
-                        <Sparkles className="w-4 h-4 text-brand" />
-                        <span className="text-[10px] font-bold uppercase tracking-widest">{lang === 'en' ? 'Tutor Context' : 'Contexte Tuteur'}</span>
+                      <div className="space-y-3">
+                        <div className="flex items-center justify-between px-2">
+                           <div className="flex items-center gap-2 text-slate-500">
+                             <Sparkles className="w-4 h-4 text-brand" />
+                             <span className="text-[10px] font-bold uppercase tracking-widest">{lang === 'en' ? 'Tutor Personality' : 'Personnalité du Tuteur'}</span>
+                           </div>
+                           <div className="flex gap-1">
+                              {(['guide', 'scientist', 'coach'] as TutorPersonality[]).map(p => (
+                                <button
+                                  key={p}
+                                  onClick={() => setTutorPersonality(p)}
+                                  className={cn(
+                                    "px-3 py-1 rounded-full text-[9px] font-bold uppercase tracking-tighter transition-all",
+                                    tutorPersonality === p ? "bg-brand text-white" : "bg-slate-100 text-slate-500 hover:bg-slate-200"
+                                  )}
+                                >
+                                  {p}
+                                </button>
+                              ))}
+                           </div>
+                        </div>
+                        <textarea
+                          value={userQuestion}
+                          onChange={(e) => setUserQuestion(e.target.value)}
+                          placeholder={t.askSpecificQuestion}
+                          className="w-full bg-white border border-slate-200 rounded-2xl p-4 text-sm focus:ring-2 focus:ring-brand/20 outline-none resize-none transition-all placeholder:text-slate-400 shadow-sm"
+                          rows={3}
+                        />
                       </div>
-                      <textarea
-                        value={userQuestion}
-                        onChange={(e) => setUserQuestion(e.target.value)}
-                        placeholder={t.askSpecificQuestion}
-                        className="w-full bg-white border border-slate-200 rounded-2xl p-4 text-sm focus:ring-2 focus:ring-brand/20 outline-none resize-none transition-all placeholder:text-slate-400 shadow-sm"
-                        rows={3}
-                      />
                     </motion.div>
                   )}
 
@@ -1365,6 +1280,8 @@ export default function App() {
             </motion.div>
           )}
         </AnimatePresence>
+          </>
+        )}
       </main>
     </div>
   );

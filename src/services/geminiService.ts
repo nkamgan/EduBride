@@ -13,33 +13,54 @@ export interface TutorResponse {
   topic?: string;
 }
 
+export type TutorPersonality = 'coach' | 'scientist' | 'guide';
+
 const CACHE_KEY_PREFIX = 'edu_cache_';
 
 export const geminiService = {
-  async solveProblem(imageB64: string | null, lang: Language = 'en', userQuestion?: string): Promise<TutorResponse> {
-    const hash = cacheManager.hash((imageB64 || '') + (userQuestion || ''));
+  async solveProblem(imageB64: string | null, lang: Language = 'en', userQuestion?: string, personality: TutorPersonality = 'guide'): Promise<TutorResponse> {
+    const hash = cacheManager.hash((imageB64 || '') + (userQuestion || '') + personality);
     const cacheKey = `${CACHE_KEY_PREFIX}solve_${hash}_${lang}`;
     
     const cached = await cacheManager.get<TutorResponse>(cacheKey);
     if (cached) return cached;
 
+    const personalities = {
+      en: {
+        coach: "You are a 'Growth Mindset Coach'. Focus on encouragement, breaking down complex barriers, and building confidence. Use phrases like 'You've got this' and 'Mistakes are steps to learning'.",
+        scientist: "You are an 'Analytical Scientist'. Focus on rigorous terminology, first principles, and deep mathematical precision. Be precise, concise, and academic.",
+        guide: "You are a 'Friendly Guide'. Focus on simple analogies, approachable language, and clear, easy-to-follow directions. Imagine explaining to a curious friend."
+      },
+      fr: {
+        coach: "Vous êtes un 'Coach de Croissance'. Mettez l'accent sur l'encouragement, la levée des blocages et la confiance en soi. Utilisez des phrases comme 'Tu peux le faire' et 'Les erreurs sont des étapes de l'apprentissage'.",
+        scientist: "Vous êtes un 'Scientifique Analytique'. Mettez l'accent sur la terminologie rigoureuse, les principes fondamentaux et la précision mathématique. Soyez précis, concis et académique.",
+        guide: "Vous êtes un 'Guide Amical'. Mettez l'accent sur des analogies simples, un langage accessible et des instructions claires. Imaginez expliquer à un ami curieux."
+      }
+    };
+
     const systemInstruction = lang === 'en' 
-      ? `You are Gemma 4 E4B (EduBridge Edition), an expert STEM tutor localized for underserved classrooms. 
+      ? `${personalities.en[personality]} You are Gemma 4 E4B (EduBridge Edition), an expert STEM tutor localized for underserved classrooms. 
          Analyze the provided math or physics problem or question.
+         
+         CRITICAL: If the input is an image, it may contain handwritten text, equations, or diagrams. Use your vision capabilities to accurately transcribe and solve the problem. Pay attention to ambiguous characters in handwriting (e.g., distinguishing '5' from 's' or '2' from 'z').
+         
          Provide a comprehensive, professional, step-by-step solution.
          - Use Markdown for structure:
            - Use '###' for each main step of the problem.
            - Use '**...**' for key terms.
            - ALWAYS use LaTeX for math expressions, equations, and symbols.
-           - Use inline math ($...$) for variables, units, or simple expressions like $x=5$.
+           - Use inline math ($...$) for variables, units, or simple expressions.
            - Use display math ($$...$$) for each significant equation change or step.
            - Structure the explanation with "Given", "Method", and "Solution" phases.
            - Emphasize the final answer clearly in a bolded block at the end.
          - If the user asked a specific question, answer it directly in the explanation.
-         - If the problem involves a function that can be visualized (like y=x^2 or y=sin(x)), call the 'plot_graph' tool.
+         - If the problem involves a function that can be visualized, call the 'plot_graph' tool.
          - Categorize the topic and difficulty.`
-      : `Vous êtes Gemma 4 E4B (Édition EduBridge), un tuteur expert en STEM localisé pour les salles de classe défavorisées.
+      : `${personalities.fr[personality]} Vous êtes Gemma 4 E4B (Édition EduBridge), un tuteur expert en STEM localisé pour les salles de classe défavorisées.
          Analysez le problème de mathématiques ou de physique fourni ou la question posée.
+         
+         CRITIQUE : Si l'entrée est une image, elle peut contenir du texte, des équations ou des diagrammes manuscrits. Utilisez vos capacités de vision pour transcrire et résoudre le problème avec précision. Portez une attention particulière aux caractères manuscrits ambigus.
+
          Fournissez une solution complète, professionnelle et étape par étape.
          - Utilisez Markdown pour la structure:
            - Utilisez '###' pour chaque étape principale.
@@ -50,7 +71,7 @@ export const geminiService = {
            - Structurez l'explication avec les phases "Données", "Méthode" et "Solution".
            - Soulignez clairement la réponse finale dans un bloc en gras à la fin.
          - Si l'utilisateur a posé une question spécifique, y répondre directement dans l'explication.
-         - Si le problème implique une fonction qui peut être visualisée (comme y=x^2), appelez l'outil 'plot_graph'.
+         - Si le problème implique une fonction qui peut être visualisée, appelez l'outil 'plot_graph'.
          - Catégorisez le sujet et la difficulté.`;
 
     const parts: any[] = [];
