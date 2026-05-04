@@ -95,6 +95,8 @@ export default function App() {
     }
   }, [tutorPersonality, profile, setProfile]);
 
+  const [isOnline, setIsOnline] = useState(navigator.onLine);
+
   const [apiError, setApiError] = useState<{ message: string; type: string } | null>(null);
   
   // Practice State
@@ -191,6 +193,9 @@ export default function App() {
         localEntries: stats.localStorageEntries,
         isOnline: navigator.onLine
       }));
+      
+      // Sync the simple isOnline state
+      setIsOnline(navigator.onLine);
     };
 
     updateDiagnostics();
@@ -448,7 +453,15 @@ export default function App() {
                 <BrainCircuit className="w-7 h-7" />
               </div>
               <div>
-                <h1 className="font-serif text-2xl font-bold leading-tight">{t.appName}</h1>
+                <div className="flex items-center gap-2">
+                  <h1 className="font-serif text-2xl font-bold leading-tight">{t.appName}</h1>
+                  {!isOnline && (
+                    <span className="px-1.5 py-0.5 bg-amber-100 text-amber-700 text-[8px] font-bold uppercase rounded flex items-center gap-1">
+                      <div className="w-1 h-1 bg-amber-500 rounded-full animate-pulse" />
+                      Offline Explorer
+                    </span>
+                  )}
+                </div>
                 <p className="text-[10px] uppercase tracking-widest font-bold text-brand">{t.tagline}</p>
               </div>
             </div>
@@ -800,15 +813,20 @@ export default function App() {
 
                   <button 
                     disabled={(!imagePreview && !userQuestion) || isSolving}
-                    onClick={handleSolve}
+                    onClick={isOnline ? handleSolve : () => handleApiError(new TutorError(TutorErrorType.NETWORK, lang === 'en' ? "You are offline. Please check your connection to solve new problems." : "Vous êtes hors ligne. Veuillez vérifier votre connexion pour résoudre de nouveaux problèmes."))}
                     className={cn(
                       "w-full py-5 rounded-3xl font-bold text-lg shadow-xl transition-all active:scale-95 flex items-center justify-center gap-3",
                       (imagePreview || userQuestion) && !isSolving 
-                        ? "bg-brand text-white shadow-brand/20 hover:bg-brand-dark" 
+                        ? (isOnline ? "bg-brand text-white shadow-brand/20 hover:bg-brand-dark" : "bg-amber-500 text-white shadow-amber-200")
                         : "bg-slate-200 text-slate-400 cursor-not-allowed"
                     )}
                   >
-                    {isSolving ? (
+                    {!isOnline && (imagePreview || userQuestion) && !isSolving ? (
+                      <>
+                        <AlertCircle className="w-6 h-6" />
+                        {lang === 'en' ? 'Offline Mode' : 'Mode Hors Ligne'}
+                      </>
+                    ) : isSolving ? (
                         <>
                             <div className="w-5 h-5 border-3 border-white/30 border-t-white rounded-full animate-spin"></div>
                             {t.solving}
@@ -965,10 +983,13 @@ export default function App() {
                                     <p className="text-slate-400 max-w-sm mx-auto mt-2">Pick a topic above and generate a personalized practice problem.</p>
                                 </div>
                                 <button 
-                                    onClick={handleGeneratePractice}
-                                    className="px-8 py-4 bg-brand text-white font-bold rounded-2xl shadow-lg hover:bg-brand-dark transition-all"
+                                    onClick={isOnline ? handleGeneratePractice : () => handleApiError(new TutorError(TutorErrorType.NETWORK, lang === 'en' ? "New problem generation requires an internet connection." : "La génération de nouveaux problèmes nécessite une connexion Internet."))}
+                                    className={cn(
+                                        "px-8 py-4 font-bold rounded-2xl shadow-lg transition-all",
+                                        isOnline ? "bg-brand text-white hover:bg-brand-dark" : "bg-amber-100 text-amber-700"
+                                    )}
                                 >
-                                    {t.generateBtn}
+                                    {!isOnline ? (lang === 'en' ? 'Get Connection to Practice' : 'Connectez-vous pour pratiquer') : t.generateBtn}
                                 </button>
                             </div>
                         ) : isGenerating ? (
@@ -989,10 +1010,13 @@ export default function App() {
                                         <h3 className="font-bold text-slate-800 text-lg">{practiceProblem.topic}</h3>
                                     </div>
                                     <button 
-                                        onClick={handleGeneratePractice}
-                                        className="text-brand font-bold text-sm hover:underline"
+                                        onClick={isOnline ? handleGeneratePractice : () => {}}
+                                        className={cn(
+                                            "font-bold text-sm",
+                                            isOnline ? "text-brand hover:underline" : "text-slate-300 cursor-not-allowed"
+                                        )}
                                     >
-                                        Try another one
+                                        {lang === 'en' ? 'Try another one' : 'Essayer un autre'}
                                     </button>
                                 </div>
 
