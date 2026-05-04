@@ -1,5 +1,6 @@
 import React from 'react';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
+import { MathRenderer } from './MathRenderer';
 
 interface GraphGeneratorProps {
   expression: string;
@@ -11,24 +12,33 @@ export const GraphGenerator: React.FC<GraphGeneratorProps> = ({ expression, lang
   const generateData = () => {
     const data = [];
     try {
-      // Basic expression evaluator for demo purposes
-      // Support basic replacements for visual clarity
       const cleanExpr = expression
-        .replace(/(\d)x/g, '$1*x') // 2x -> 2*x
-        .replace(/x\^2/g, 'x*x')
+        .toLowerCase()
+        .replace(/\s+/g, '')
+        .replace(/(\d)(x|\(|\bsin\b|\bcos\b|\btan\b|\bsqrt\b|\blog\b|\bln\b|\bexp\b|\babs\b)/g, '$1*$2')
+        .replace(/(x|\))(\d)/g, '$1*$2')
+        .replace(/\^/g, '**')
+        .replace(/abs/g, 'Math.abs')
         .replace(/sin/g, 'Math.sin')
-        .replace(/cos/g, 'Math.cos');
+        .replace(/cos/g, 'Math.cos')
+        .replace(/tan/g, 'Math.tan')
+        .replace(/sqrt/g, 'Math.sqrt')
+        .replace(/log/g, 'Math.log10')
+        .replace(/ln/g, 'Math.log')
+        .replace(/exp/g, 'Math.exp')
+        .replace(/pi/g, 'Math.PI')
+        .replace(/e/g, 'Math.E');
       
-      for (let x = -10; x <= 10; x += 0.5) {
+      for (let x = -10; x <= 10; x += 0.25) {
         let y = 0;
         try {
           const evalExpr = cleanExpr.replace(/x/g, `(${x})`);
           y = eval(evalExpr);
         } catch(e) {
-          y = 0;
+          continue;
         }
         if (isNaN(y) || !isFinite(y)) continue;
-        data.push({ x, y });
+        data.push({ x: Number(x.toFixed(2)), y: Number(y.toFixed(2)) });
       }
     } catch (e) {
       return [{ x: 0, y: 0 }];
@@ -40,9 +50,12 @@ export const GraphGenerator: React.FC<GraphGeneratorProps> = ({ expression, lang
 
   return (
     <div className="h-64 w-full bg-white rounded-xl p-4 border border-slate-200 shadow-sm mt-4">
-      <p className="text-xs font-mono text-slate-400 mb-2">
-        {lang === 'en' ? 'Graph Output' : 'Sortie Graphique'}: {expression}
-      </p>
+      <div className="text-xs font-mono text-slate-400 mb-2 flex items-center gap-2">
+        <span>{lang === 'en' ? 'Graph Output' : 'Sortie Graphique'}:</span>
+        <div className="scale-75 origin-left">
+          <MathRenderer content={`$y = ${expression.replace(/\*\*/g, '^')}$`} />
+        </div>
+      </div>
       <ResponsiveContainer width="100%" height="100%">
         <LineChart data={data}>
           <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />

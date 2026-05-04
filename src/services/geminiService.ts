@@ -16,8 +16,8 @@ export interface TutorResponse {
 const CACHE_KEY_PREFIX = 'edu_cache_';
 
 export const geminiService = {
-  async solveProblem(imageB64: string, lang: Language = 'en'): Promise<TutorResponse> {
-    const hash = cacheManager.hash(imageB64);
+  async solveProblem(imageB64: string | null, lang: Language = 'en', userQuestion?: string): Promise<TutorResponse> {
+    const hash = cacheManager.hash((imageB64 || '') + (userQuestion || ''));
     const cacheKey = `${CACHE_KEY_PREFIX}solve_${hash}_${lang}`;
     
     const cached = await cacheManager.get<TutorResponse>(cacheKey);
@@ -25,23 +25,47 @@ export const geminiService = {
 
     const systemInstruction = lang === 'en' 
       ? `You are Gemma 4 E4B (EduBridge Edition), an expert STEM tutor localized for underserved classrooms. 
-         Analyze the provided math or physics problem.
-         Provide a comprehensive, step-by-step solution in Markdown with LaTeX ($ or $$).
-         If the problem involves a function that can be visualized (like y=x^2 or y=sin(x)), call the 'plot_graph' tool.
-         Categorize the topic and difficulty.`
+         Analyze the provided math or physics problem or question.
+         Provide a comprehensive, professional, step-by-step solution.
+         - Use Markdown for structure:
+           - Use '###' for each main step of the problem.
+           - Use '**...**' for key terms.
+           - ALWAYS use LaTeX for math expressions, equations, and symbols.
+           - Use inline math ($...$) for variables, units, or simple expressions like $x=5$.
+           - Use display math ($$...$$) for each significant equation change or step.
+           - Structure the explanation with "Given", "Method", and "Solution" phases.
+           - Emphasize the final answer clearly in a bolded block at the end.
+         - If the user asked a specific question, answer it directly in the explanation.
+         - If the problem involves a function that can be visualized (like y=x^2 or y=sin(x)), call the 'plot_graph' tool.
+         - Categorize the topic and difficulty.`
       : `Vous êtes Gemma 4 E4B (Édition EduBridge), un tuteur expert en STEM localisé pour les salles de classe défavorisées.
-         Analysez le problème de mathématiques ou de physique fourni.
-         Fournissez une solution complète et étape par étape en Markdown avec LaTeX ($ ou $$).
-         Si le problème implique une fonction qui peut être visualisée (comme y=x^2), appelez l'outil 'plot_graph'.
-         Catégorisez le sujet et la difficulté.`;
+         Analysez le problème de mathématiques ou de physique fourni ou la question posée.
+         Fournissez une solution complète, professionnelle et étape par étape.
+         - Utilisez Markdown pour la structure:
+           - Utilisez '###' pour chaque étape principale.
+           - Utilisez '**...**' pour les termes clés.
+           - Utilisez TOUJOURS LaTeX pour les expressions mathématiques, les équations et les symboles.
+           - Utilisez le mode mathématique en ligne ($...$) pour les variables, unités ou expressions simples.
+           - Utilisez le mode mathématique d'affichage ($$...$$) pour chaque équation ou étape significative.
+           - Structurez l'explication avec les phases "Données", "Méthode" et "Solution".
+           - Soulignez clairement la réponse finale dans un bloc en gras à la fin.
+         - Si l'utilisateur a posé une question spécifique, y répondre directement dans l'explication.
+         - Si le problème implique une fonction qui peut être visualisée (comme y=x^2), appelez l'outil 'plot_graph'.
+         - Catégorisez le sujet et la difficulté.`;
+
+    const parts: any[] = [];
+    if (userQuestion) {
+      parts.push({ text: userQuestion });
+    }
+    if (imageB64) {
+      parts.push({ inlineData: { mimeType: "image/jpeg", data: imageB64 } });
+    }
 
     const response = await ai.models.generateContent({
       model: "gemini-3.1-pro-preview",
       contents: [
         {
-          parts: [
-            { inlineData: { mimeType: "image/jpeg", data: imageB64 } }
-          ]
+          parts
         }
       ],
       config: {

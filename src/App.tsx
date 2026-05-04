@@ -42,6 +42,8 @@ import { cn } from './lib/utils';
 import { ScientificCalculator } from './components/ScientificCalculator';
 import { InteractiveGrapher } from './components/InteractiveGrapher';
 import { Scratchpad } from './components/Scratchpad';
+import { CurriculumBrowser } from './components/CurriculumBrowser';
+import { Lesson } from './constants/curriculum';
 
 type Tab = 'scan' | 'practice' | 'curriculum' | 'tools' | 'progress' | 'chat';
 
@@ -79,6 +81,7 @@ export default function App() {
   const [currentSolution, setCurrentSolution] = useState<TutorResponse | null>(null);
   const [imagePreview, setImagePreview] = useState<string | null>(null);
   const [uploadError, setUploadError] = useState<string | null>(null);
+  const [userQuestion, setUserQuestion] = useState('');
   
   // Camera State
   const [isCameraActive, setIsCameraActive] = useState(false);
@@ -141,6 +144,14 @@ export default function App() {
   }, [progress]);
 
   const [showDiagnostics, setShowDiagnostics] = useState(false);
+  const handleLessonSelect = (lesson: Lesson) => {
+    setActiveTab('scan');
+    setUserQuestion(lang === 'en' 
+      ? `Explain the concept of ${lesson.title}: ${lesson.description}. Key points: ${lesson.keyPoints.join(', ')}.`
+      : `Expliquez le concept de ${lesson.title}: ${lesson.description}. Points clés: ${lesson.keyPoints.join(', ')}.`
+    );
+  };
+
   const [diagnostics, setDiagnostics] = useState({
     storageUsed: '0 KB',
     cachedTotal: 0,
@@ -250,6 +261,7 @@ export default function App() {
       cameraBtn: 'Use Camera',
       captureBtn: 'Capture Problem',
       closeCamera: 'Close Camera',
+      askSpecificQuestion: 'Ask a specific question about this problem (optional)...',
     },
     fr: {
       appName: 'EduBridge',
@@ -284,6 +296,7 @@ export default function App() {
       cameraBtn: 'Utiliser Caméra',
       captureBtn: 'Capturer Problème',
       closeCamera: 'Fermer Caméra',
+      askSpecificQuestion: 'Posez une question spécifique sur ce problème (facultatif)...',
     }
   }[lang]), [lang]);
 
@@ -361,11 +374,11 @@ export default function App() {
   };
 
   const handleSolve = async () => {
-    if (!imagePreview) return;
+    if (!imagePreview && !userQuestion) return;
     setIsSolving(true);
     try {
-      const b64 = imagePreview.split(',')[1];
-      const result = await geminiService.solveProblem(b64, lang);
+      const b64 = imagePreview ? imagePreview.split(',')[1] : null;
+      const result = await geminiService.solveProblem(b64, lang, userQuestion);
       setCurrentSolution(result);
       
       setProgress(prev => {
@@ -734,7 +747,12 @@ export default function App() {
                       <div className="relative w-full h-full">
                          <img src={imagePreview} alt="Problem" className="w-full h-full object-contain p-8" />
                          <button 
-                            onClick={(e) => { e.stopPropagation(); setImagePreview(null); setCurrentSolution(null); }}
+                            onClick={(e) => { 
+                              e.stopPropagation(); 
+                              setImagePreview(null); 
+                              setCurrentSolution(null); 
+                              setUserQuestion('');
+                            }}
                             className="absolute top-6 right-6 p-2 bg-white/80 backdrop-blur shadow-sm rounded-full text-slate-600 hover:text-red-500"
                          >
                             <X className="w-5 h-5" />
@@ -765,12 +783,32 @@ export default function App() {
                     </motion.div>
                   )}
 
+                  {imagePreview && !currentSolution && !isSolving && (
+                    <motion.div 
+                      initial={{ opacity: 0, y: 10 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      className="space-y-3"
+                    >
+                      <div className="flex items-center gap-2 text-slate-500 px-2">
+                        <Sparkles className="w-4 h-4 text-brand" />
+                        <span className="text-[10px] font-bold uppercase tracking-widest">{lang === 'en' ? 'Tutor Context' : 'Contexte Tuteur'}</span>
+                      </div>
+                      <textarea
+                        value={userQuestion}
+                        onChange={(e) => setUserQuestion(e.target.value)}
+                        placeholder={t.askSpecificQuestion}
+                        className="w-full bg-white border border-slate-200 rounded-2xl p-4 text-sm focus:ring-2 focus:ring-brand/20 outline-none resize-none transition-all placeholder:text-slate-400 shadow-sm"
+                        rows={3}
+                      />
+                    </motion.div>
+                  )}
+
                   <button 
-                    disabled={!imagePreview || isSolving}
+                    disabled={(!imagePreview && !userQuestion) || isSolving}
                     onClick={handleSolve}
                     className={cn(
                       "w-full py-5 rounded-3xl font-bold text-lg shadow-xl transition-all active:scale-95 flex items-center justify-center gap-3",
-                      imagePreview && !isSolving 
+                      (imagePreview || userQuestion) && !isSolving 
                         ? "bg-brand text-white shadow-brand/20 hover:bg-brand-dark" 
                         : "bg-slate-200 text-slate-400 cursor-not-allowed"
                     )}
@@ -814,7 +852,9 @@ export default function App() {
                         <div className="flex items-center justify-between">
                             <div className="flex items-center gap-3">
                                 <CheckCircle2 className="w-6 h-6 text-green-500" />
-                                <h3 className="font-bold text-slate-900 uppercase tracking-widest text-xs">{currentSolution.topic || 'STEM SOLUTION'}</h3>
+                                <div className="font-bold text-slate-900 uppercase tracking-widest text-xs scale-90 origin-left">
+                                  <MathRenderer content={currentSolution.topic || 'STEM SOLUTION'} />
+                                </div>
                             </div>
                             <div className="px-4 py-1.5 bg-brand/10 text-brand text-xs font-bold rounded-full">
                                 {t.difficulty}: {currentSolution.difficulty}
@@ -823,7 +863,9 @@ export default function App() {
 
                          <div className="p-6 bg-slate-50 rounded-3xl border border-slate-100 relative group/speak">
                             <h4 className="text-[10px] font-bold text-slate-400 uppercase tracking-tighter mb-2">{t.explanation}</h4>
-                            <p className="text-slate-700 italic font-medium leading-relaxed">{currentSolution.explanation}</p>
+                            <div className="text-slate-700 italic font-medium leading-relaxed">
+                                <MathRenderer content={currentSolution.explanation} />
+                            </div>
                             <button 
                                 onClick={() => handleSpeak(currentSolution.explanation)}
                                 className="absolute top-4 right-4 p-2 bg-white rounded-full opacity-0 group-hover/speak:opacity-100 transition-opacity shadow-sm text-slate-400 hover:text-brand"
@@ -833,7 +875,13 @@ export default function App() {
                             </button>
                         </div>
 
-                        <MathRenderer content={currentSolution.solution} />
+                        <motion.div 
+                            initial={{ opacity: 0, y: 10 }}
+                            animate={{ opacity: 1, y: 0 }}
+                            transition={{ duration: 0.5 }}
+                        >
+                            <MathRenderer content={currentSolution.solution} />
+                        </motion.div>
 
                         {currentSolution.toolsSuggested && currentSolution.toolsSuggested.length > 0 && (
                              <div className="flex flex-wrap gap-2 pt-6 border-t border-slate-100">
@@ -1248,30 +1296,12 @@ export default function App() {
           {activeTab === 'curriculum' && (
             <motion.div 
                key="curriculum"
-               className="max-w-5xl mx-auto space-y-10 py-20 text-center"
+               initial={{ opacity: 0, y: 20 }}
+               animate={{ opacity: 1, y: 0 }}
+               exit={{ opacity: 0, y: -20 }}
+               className="max-w-7xl mx-auto"
             >
-                <div className="w-24 h-24 bg-brand/10 rounded-[40px] flex items-center justify-center text-brand mx-auto mb-6">
-                    <BookOpen className="w-12 h-12" />
-                </div>
-                <h2 className="text-4xl font-serif font-bold text-slate-900">{t.curriculumTitle}</h2>
-                <p className="text-slate-500 max-w-lg mx-auto">Access local syllabus lessons for Algebra, Physics, and more. Optimized for offline learning.</p>
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mt-12 text-left">
-                    {STEM_TOPICS.map(topic => (
-                        <div key={topic.id} className="p-8 bg-white border border-slate-200 rounded-[32px] hover:shadow-md transition-shadow cursor-pointer group">
-                             <div className="flex items-center justify-between mb-4">
-                                <div className="w-12 h-12 bg-slate-50 rounded-2xl flex items-center justify-center text-slate-400 group-hover:text-brand transition-colors">
-                                    {topic.icon}
-                                </div>
-                                <div className="text-xs font-bold text-slate-400 uppercase tracking-widest">{topic.lessons} Lessons</div>
-                             </div>
-                             <h3 className="text-xl font-bold text-slate-800">{topic.name[lang]} Path</h3>
-                             <p className="text-sm text-slate-500 mt-2">Comprehensive curriculum covering standard examinations and fundamental concepts.</p>
-                             <div className="mt-8 flex items-center text-brand font-bold text-sm gap-2">
-                                Start Path <ChevronRight className="w-4 h-4" />
-                             </div>
-                        </div>
-                    ))}
-                </div>
+                <CurriculumBrowser lang={lang} onSelectLesson={handleLessonSelect} />
             </motion.div>
           )}
 

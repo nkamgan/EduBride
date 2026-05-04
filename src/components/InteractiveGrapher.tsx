@@ -1,6 +1,7 @@
 import React, { useRef, useEffect, useState } from 'react';
 import { Settings, RefreshCw, ZoomIn, ZoomOut, Maximize2 } from 'lucide-react';
 import { cn } from '../lib/utils';
+import { MathRenderer } from './MathRenderer';
 
 export const InteractiveGrapher: React.FC = () => {
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -66,15 +67,19 @@ export const InteractiveGrapher: React.FC = () => {
     ctx.beginPath();
 
     let first = true;
-    const step = 2; // px
+    const step = 1 / (window.devicePixelRatio || 1); // Higher resolution steps
 
-    for (let px = 0; px < width; px += step) {
-      const x = (px - centerX) / zoom;
+    // Helper for safe evaluation
+    const evaluate = (x: number) => {
       try {
-        // Simple expression parser/evaluator
         const safeExpr = expression
+          .toLowerCase()
+          .replace(/\s+/g, '')
+          .replace(/(\d)(x|\(|\bsin\b|\bcos\b|\btan\b|\bsqrt\b|\blog\b|\bln\b|\bexp\b|\babs\b)/g, '$1*$2') // Implicit multiplication: 2x -> 2*x
+          .replace(/(x|\))(\d)/g, '$1*$2') // Implicit multiplication: x2 -> x*2
           .replace(/x/g, `(${x})`)
           .replace(/\^/g, '**')
+          .replace(/abs/g, 'Math.abs')
           .replace(/sin/g, 'Math.sin')
           .replace(/cos/g, 'Math.cos')
           .replace(/tan/g, 'Math.tan')
@@ -85,25 +90,61 @@ export const InteractiveGrapher: React.FC = () => {
           .replace(/pi/g, 'Math.PI')
           .replace(/e/g, 'Math.E');
 
-        const y = eval(safeExpr);
-        const py = centerY - y * zoom;
-
-        if (isNaN(y) || !isFinite(y)) {
-          first = true;
-          continue;
-        }
-
-        if (first) {
-          ctx.moveTo(px, py);
-          first = false;
-        } else {
-          ctx.lineTo(px, py);
-        }
+        return eval(safeExpr);
       } catch (e) {
-        // Skip invalid points
+        return NaN;
+      }
+    };
+
+    ctx.beginPath();
+    for (let px = 0; px < width; px += step) {
+      const x = (px - centerX) / zoom;
+      const y = evaluate(x);
+      const py = centerY - y * zoom;
+
+      if (isNaN(y) || !isFinite(y)) {
+        first = true;
+        continue;
+      }
+
+      // Handle clipping to keep performance high
+      if (py < -height || py > height * 2) {
+        first = true;
+        continue;
+      }
+
+      if (first) {
+        ctx.moveTo(px, py);
+        first = false;
+      } else {
+        ctx.lineTo(px, py);
       }
     }
     ctx.stroke();
+
+    // Axis Labels
+    ctx.fillStyle = '#64748b';
+    ctx.font = '10px Inter';
+    ctx.textAlign = 'center';
+    
+    // X labels
+    const xStart = Math.floor((-centerX) / zoom);
+    const xEnd = Math.ceil((width - centerX) / zoom);
+    for (let i = xStart; i <= xEnd; i++) {
+        if (i === 0) continue;
+        const x = centerX + i * zoom;
+        ctx.fillText(i.toString(), x, centerY + 15);
+    }
+
+    // Y labels
+    ctx.textAlign = 'right';
+    const yStart = Math.floor((centerY - height) / zoom);
+    const yEnd = Math.ceil(centerY / zoom);
+    for (let i = yStart; i <= yEnd; i++) {
+        if (i === 0) continue;
+        const y = centerY - i * zoom;
+        ctx.fillText(i.toString(), centerX - 8, y + 4);
+    }
   };
 
   useEffect(() => {
@@ -147,7 +188,9 @@ export const InteractiveGrapher: React.FC = () => {
     <div className="bg-white rounded-[40px] border border-slate-200 overflow-hidden shadow-sm flex flex-col h-[500px]">
       <div className="p-6 border-b border-slate-100 flex items-center gap-4">
         <div className="flex-1 relative">
-          <span className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400 font-mono italic">f(x) =</span>
+          <div className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none scale-75 origin-left">
+            <MathRenderer content="$f(x) =$" />
+          </div>
           <input 
             type="text" 
             value={expression}
