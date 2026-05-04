@@ -49,9 +49,17 @@ import { InteractiveGrapher } from './components/InteractiveGrapher';
 import { Scratchpad } from './components/Scratchpad';
 import { CurriculumBrowser } from './components/CurriculumBrowser';
 import { UnitConverter } from './components/UnitConverter';
+import { Flashcard } from './components/Flashcard';
 import { Lesson } from './constants/curriculum';
 
 type Tab = 'scan' | 'practice' | 'curriculum' | 'tools' | 'progress' | 'chat';
+
+interface FlashcardItem {
+  id: string;
+  front: string;
+  back: string;
+  topic: string;
+}
 
 interface ProgressData {
   totalSolved: number;
@@ -142,6 +150,39 @@ export default function App() {
   // Advice State
   const [studyAdvice, setStudyAdvice] = useState<string | null>(null);
   const [isGettingAdvice, setIsGettingAdvice] = useState(false);
+  const [flashcards, setFlashcards] = useState<FlashcardItem[]>([]);
+  const [isGeneratingFlashcards, setIsGeneratingFlashcards] = useState(false);
+
+  const generateFlashcards = async () => {
+    const topicStats = STEM_TOPICS.map(topic => {
+      const mastery = progress.topicMastery[topic.id] || 0;
+      const srs = progress.srsData[topic.id];
+      const nextReview = srs ? new Date(srs.nextReview).getTime() : 0;
+      const now = Date.now();
+      const overdueScore = (nextReview > 0 && nextReview < now) ? (now - nextReview) / (1000 * 60 * 60 * 24) : 0;
+      return { 
+        id: topic.id, 
+        name: topic.name[lang],
+        score: (100 - mastery) + overdueScore * 10 
+      };
+    }).sort((a, b) => b.score - a.score).slice(0, 5);
+
+    setIsGeneratingFlashcards(true);
+    try {
+      const topicsList = topicStats.map(t => t.name).join(', ');
+      const rawCards = await geminiService.generateFlashcards(topicsList, lang);
+      
+      const cards = (rawCards || []).map((c: any) => ({
+        ...c,
+        id: Math.random().toString(36).substring(7)
+      }));
+      setFlashcards(cards);
+    } catch (err) {
+      console.error('Error generating flashcards:', err);
+    } finally {
+      setIsGeneratingFlashcards(false);
+    }
+  };
 
   // Progress State
   const [progress, setProgress] = useState<ProgressData>(() => {
@@ -1399,6 +1440,47 @@ export default function App() {
                     <StatCard label={t.solved} value={progress.totalSolved.toString()} icon={<CheckCircle2 className="w-6 h-6 text-green-500" />} />
                     <StatCard label="Daily Streak" value={`${progress.streak} Days`} icon={<History className="w-6 h-6 text-orange-500" />} />
                     <StatCard label="Avg. Mastery" value={`${Math.round(Object.values(progress.topicMastery).reduce((a,b)=>a+b,0)/4)}%`} icon={<TrendingUp className="w-6 h-6 text-brand" />} />
+                </div>
+
+                <div className="bg-white rounded-[40px] border border-slate-200 p-10 overflow-hidden shadow-sm space-y-8">
+                    <div className="flex items-center justify-between">
+                         <div>
+                            <h3 className="font-bold text-xl text-slate-900 leading-tight">Personalized Review</h3>
+                            <p className="text-slate-400 text-sm mt-1 font-medium italic">Targeted flashcards for your challenging topics</p>
+                         </div>
+                         <button 
+                            onClick={generateFlashcards}
+                            disabled={isGeneratingFlashcards}
+                            className="flex items-center gap-2 px-6 py-3 bg-slate-900 text-white rounded-2xl font-bold shadow-lg active:scale-95 transition-all text-xs disabled:opacity-50"
+                         >
+                            {isGeneratingFlashcards ? <RefreshCw className="w-4 h-4 animate-spin" /> : <BrainCircuit className="w-4 h-4 text-brand" />}
+                            {isGeneratingFlashcards ? 'Analyzing...' : 'Generate Flashcards'}
+                         </button>
+                    </div>
+
+                    <AnimatePresence mode="wait">
+                        {flashcards.length > 0 ? (
+                            <motion.div 
+                                key="flashcards"
+                                initial={{ opacity: 0, scale: 0.95 }}
+                                animate={{ opacity: 1, scale: 1 }}
+                                exit={{ opacity: 0, scale: 0.95 }}
+                                className="py-4"
+                            >
+                                <Flashcard cards={flashcards} />
+                            </motion.div>
+                        ) : !isGeneratingFlashcards && (
+                            <div className="py-20 flex flex-col items-center justify-center text-center space-y-4 bg-slate-50 rounded-[32px] border border-dashed border-slate-200">
+                                <div className="w-16 h-16 bg-white rounded-full flex items-center justify-center shadow-sm">
+                                    <Sparkles className="w-8 h-8 text-brand/30" />
+                                </div>
+                                <div className="space-y-1">
+                                    <p className="font-bold text-slate-800">Ready for a challenge?</p>
+                                    <p className="text-xs text-slate-400 max-w-xs">We'll analyze your mastery data to find concepts that need reinforcement.</p>
+                                </div>
+                            </div>
+                        )}
+                    </AnimatePresence>
                 </div>
 
                 <div className="bg-white rounded-[40px] border border-slate-200 p-10 overflow-hidden shadow-sm space-y-8">

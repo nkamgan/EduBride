@@ -62,12 +62,22 @@
   @apply bg-slate-900 text-slate-300 p-6 rounded-[24px] border border-slate-800 overflow-x-auto my-6 font-mono text-sm;
 }
 
+/* Hide KaTeX MathML and other accessibility artifacts to prevent double display of equations */
+.katex-mathml,
+.katex-copytex-reporting {
+  display: none !important;
+}
+
+.katex-html {
+  display: inline-block !important;
+}
+
 .katex-display {
   @apply my-8 overflow-x-auto overflow-y-hidden py-8 px-6 bg-white rounded-[32px] border border-slate-200 shadow-sm transition-all hover:border-brand/30 relative;
 }
 
-.katex-display::after {
-  @apply content-['FORMULA'] absolute top-3 right-4 text-[8px] font-bold text-slate-300 tracking-widest;
+.katex-display .katex-html {
+  display: block !important;
 }
 
 .katex {
@@ -80,6 +90,24 @@
 
 .katex .base {
   @apply transition-colors;
+}
+
+/* 3D Transform Utilities for Flashcards */
+.perspective-1000 {
+  perspective: 1000px;
+}
+
+.preserve-3d {
+  transform-style: preserve-3d;
+}
+
+.backface-hidden {
+  backface-visibility: hidden;
+  -webkit-backface-visibility: hidden;
+}
+
+.rotate-y-180 {
+  transform: rotateY(180deg);
 }
 
 /* Inline math specifics */

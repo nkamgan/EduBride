@@ -12,7 +12,7 @@ export const MathRenderer: React.FC<MathRendererProps> = ({ content }) => {
     <div className="markdown-body">
       <ReactMarkdown
         remarkPlugins={[remarkMath]}
-        rehypePlugins={[rehypeKatex]}
+        rehypePlugins={[[rehypeKatex, { output: 'html', strict: false }]]}
       >
         {content}
       </ReactMarkdown>

@@ -213,8 +213,12 @@ export const geminiService = {
     if (cached && Math.random() > 0.05) return cached; // 5% chance to force refresh even if cached
 
     const prompt = lang === 'en'
-      ? `Generate a ${difficulty} level practice problem about ${topic}. Provide the question and a step-by-step solution.`
-      : `Générez un problème de pratique de niveau ${difficulty} sur le sujet ${topic}. Fournissez la question et une solution étape par étape.`;
+      ? `Generate a ${difficulty} level practice problem about ${topic}. Provide the question and a step-by-step solution.
+         CRITICAL: Use Markdown for structure. Use LaTeX for all math expressions ($...$ for inline, $$...$$ for display).
+         NO REDUNDANCY: Each equation, number, or variable must be presented EXACTLY ONCE. Never repeat math in both plain text and LaTeX. No text-only fallbacks.`
+      : `Générez un problème de pratique de niveau ${difficulty} sur le sujet ${topic}. Fournissez la question et une solution étape par étape.
+         CRITIQUE : Utilisez Markdown pour la structure. Utilisez LaTeX pour toutes les expressions mathématiques ($...$ pour le mode en ligne, $$...$$ pour l'affichage).
+         PAS DE REDONDANCE : Chaque équation, nombre ou variable doit être présenté EXACTEMENT UNE FOIS. Ne répétez jamais les mathématiques en texte brut et en LaTeX. Pas de versions simplifiées.`;
 
     try {
       const response = await ai.models.generateContent({
@@ -317,6 +321,45 @@ export const geminiService = {
         contents: prompt,
       });
       return response.text;
+    } catch (e: any) {
+      this.handleApiError(e, lang);
+    }
+  },
+
+  async generateFlashcards(topicsList: string, lang: Language = 'en') {
+    const prompt = lang === 'en'
+      ? `Create a set of flashcards for the following challenging STEM topics: ${topicsList}.
+         For each topic, provide 3 high-quality educational flashcards. 
+         Each card must have a 'front' (question/concept) and a 'back' (answer/explanation).
+         Use Markdown and LaTeX for math. Use simple, effective pedagogical language.
+         Return a JSON array of objects with fields: topic, front, back.`
+      : `Créez un ensemble de cartes mémoire (flashcards) pour les sujets STEM suivants : ${topicsList}.
+         Pour chaque sujet, fournissez 3 cartes éducatives de haute qualité.
+         Chaque carte doit avoir un 'recto' (question/concept) et un 'verso' (réponse/explication).
+         Utilisez Markdown et LaTeX pour les mathématiques.
+         Retournez un tableau JSON d'objets avec les champs : topic, front, back.`;
+
+    try {
+      const response = await ai.models.generateContent({
+        model: "gemini-3.1-pro-preview",
+        contents: prompt,
+        config: {
+          responseMimeType: "application/json",
+          responseSchema: {
+            type: Type.ARRAY,
+            items: {
+              type: Type.OBJECT,
+              properties: {
+                topic: { type: Type.STRING },
+                front: { type: Type.STRING },
+                back: { type: Type.STRING }
+              },
+              required: ["topic", "front", "back"]
+            }
+          }
+        }
+      });
+      return JSON.parse(response.text || "[]");
     } catch (e: any) {
       this.handleApiError(e, lang);
     }
