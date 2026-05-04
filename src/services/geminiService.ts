@@ -68,25 +68,36 @@ export const geminiService = {
            - Use '###' for each main step of the problem.
            - Use '**...**' for key terms.
            - ALWAYS use LaTeX for math expressions, equations, and symbols.
-           - Use inline math ($...$) for variables, units, or simple expressions.
-           - Use display math ($$...$$) for each significant equation change or step.
+           - Use inline math ($...$) for variables, units, or simple numeric values within sentences.
+           - Use display math ($$...$$) for all equations and step-by-step mathematical transitions.
+           - CRITICAL MATH RULE: Start and end display math blocks ($$) on their own new lines with NO indentation.
+           - NO REDUNDANCY: NEVER repeat an equation, number, or variable in both plain text and LaTeX. Do not provide "text-only" fallbacks like (a2 + b2 = c2). Use LaTeX ONLY.
+           - SINGLE STATEMENT: Each mathematical transformation or equation must be presented EXACTLY ONCE. Do not provide multiple versions or alternative notations for the same line of math.
+           - NO DUAL OUTPUT: If you show a step in LaTeX, do not write it out in words or simplified text immediately before or after.
+           - FLOW: Ensure the flow of logic is preserved with clean, encouraging connecting text between LaTeX blocks.
+           - Ensure proper LaTeX syntax (e.g., use '^' for powers, '\sqrt{}' for roots, '\frac{}{}' for fractions).
+           - Use a clean, itemized list for multiple sub-steps within a main step.
            - Structure the explanation with "Given", "Method", and "Solution" phases.
            - Emphasize the final answer clearly in a bolded block at the end.
-         - If the user asked a specific question, answer it directly in the explanation.
          - If the problem involves a function that can be visualized, call the 'plot_graph' tool.
          - Categorize the topic and difficulty.`
       : `${personalities.fr[personality]} Vous êtes le tuteur EduBridge E4B, un tuteur expert en STEM localisé pour les salles de classe défavorisées.
          Analysez le problème de mathématiques ou de physique fourni ou la question posée.
          
-         CRITIQUE : Si l'entrée est une image, elle peut contenir du texte, des équations ou des diagrammes manuscrits. Utilisez vos capacités de vision pour transcrire et résoudre le problème avec précision. Portez une attention particulière aux caractères manuscrits ambigus.
+         CRITIQUE : Si l'entrée est une image, elle peut contenir du texte, des équations ou des diagrammes manuscrits. Utilisez vos capacités de vision pour transcrire et résoudre le problème avec précision.
 
          Fournissez une solution complète, professionnelle et étape par étape.
          - Utilisez Markdown pour la structure:
            - Utilisez '###' pour chaque étape principale.
            - Utilisez '**...**' pour les termes clés.
            - Utilisez TOUJOURS LaTeX pour les expressions mathématiques, les équations et les symboles.
-           - Utilisez le mode mathématique en ligne ($...$) pour les variables, unités ou expressions simples.
-           - Utilisez le mode mathématique d'affichage ($$...$$) pour chaque équation ou étape significative.
+           - Utilisez le mode mathématique en ligne ($...$) pour les variables, unités ou simples valeurs numériques au sein des phrases.
+           - Utilisez le mode mathématique d'affichage ($$...$$) pour toutes les équations et les transitions mathématiques étape par étape.
+           - RÈGLE MATHÉMATIQUE CRITIQUE : Commencez et terminez les blocs de mathématiques d'affichage ($$) sur leurs propres nouvelles lignes sans indentation.
+           - PAS DE REDONDANCE : Ne répétez JAMAIS une équation, un nombre ou une variable en texte brut et en LaTeX. N'utilisez que LaTeX. Pas de versions simplifiées entre parenthèses.
+           - ÉNONCÉ UNIQUE : Chaque transformation mathématique ou équation doit être présentée EXACTEMENT UNE FOIS. Ne fournissez pas plusieurs versions ou notations alternatives pour la même ligne de calcul.
+           - Assurez-vous d'utiliser une syntaxe LaTeX appropriée (ex: '^' pour les puissances, '\sqrt{}' pour les racines).
+           - Assurez-vous que le flux logique est préservé avec un texte de liaison clair et encourageant entre les blocs LaTeX.
            - Structurez l'explication avec les phases "Données", "Méthode" et "Solution".
            - Soulignez clairement la réponse finale dans un bloc en gras à la fin.
          - Si l'utilisateur a posé une question spécifique, y répondre directement dans l'explication.
@@ -133,8 +144,8 @@ export const geminiService = {
           responseSchema: {
             type: Type.OBJECT,
             properties: {
-              solution: { type: Type.STRING },
-              explanation: { type: Type.STRING },
+              solution: { type: Type.STRING, description: "The full, master step-by-step solution in Markdown with LaTeX. This is the main content." },
+              explanation: { type: Type.STRING, description: "A high-level, 1-2 sentence concept summary or encouraging overview. DO NOT include step-by-step math here." },
               difficulty: { type: Type.STRING, enum: ["Beginner", "Intermediate", "Advanced"] },
               topic: { type: Type.STRING },
               toolsSuggested: { type: Type.ARRAY, items: { type: Type.STRING } }
@@ -147,17 +158,34 @@ export const geminiService = {
       this.handleApiError(e, lang);
     }
 
-    if (!response || !response.text) {
-      if (response?.candidates?.[0]?.finishReason === 'SAFETY') {
-        throw new TutorError(TutorErrorType.SAFETY, lang === 'en' ? "The content was blocked by safety filters." : "Le contenu a été bloqué par les filtres de sécurité.");
-      }
-      throw new TutorError(TutorErrorType.UNKNOWN, lang === 'en' ? "An unexpected error occurred." : "Une erreur inattendue s'est produite.");
+    const text = response?.text;
+    const finishReason = response?.candidates?.[0]?.finishReason;
+
+    if (!text && finishReason === 'SAFETY') {
+      throw new TutorError(TutorErrorType.SAFETY, lang === 'en' ? "The content was blocked by safety filters." : "Le contenu a été bloqué par les filtres de sécurité.");
+    }
+
+    if (!text) {
+        // If it's a function call but no text, we still need to provide something as solveProblem expects TutorResponse
+        const functionCalls = response?.functionCalls;
+        if (functionCalls && functionCalls.length > 0) {
+            return {
+                solution: "Plotting requested function...",
+                explanation: "I am generating a visualization for your problem.",
+                difficulty: "Intermediate",
+                topic: "Visualization",
+                toolsSuggested: ["Grapher"]
+            };
+        }
+      throw new TutorError(TutorErrorType.UNKNOWN, lang === 'en' 
+        ? `An unexpected error occurred (Reason: ${finishReason || 'no_response'}).` 
+        : `Une erreur inattendue s'est produite (Raison: ${finishReason || 'pas_de_réponse'}).`);
     }
 
     try {
-      const data = JSON.parse(response.text);
-      const toolCalls = response.candidates?.[0]?.content?.parts?.filter(p => p.functionCall);
-      if (toolCalls && toolCalls.length > 0) {
+      const data = JSON.parse(text);
+      const functionCalls = response.functionCalls;
+      if (functionCalls && functionCalls.length > 0) {
         data.toolsSuggested = data.toolsSuggested || [];
         if (!data.toolsSuggested.includes('Grapher')) data.toolsSuggested.push('Grapher');
       }
@@ -165,9 +193,10 @@ export const geminiService = {
       await cacheManager.save(cacheKey, data);
       return data;
     } catch (e) {
+      console.error('JSON parsing error in solveProblem:', e);
       return {
-        solution: response.text || "Error processing",
-        explanation: "Formatting error",
+        solution: text || "An error occurred while processing the response.",
+        explanation: "The model's response could not be parsed as intended.",
         difficulty: "Intermediate",
         topic: "General"
       };
@@ -220,8 +249,12 @@ export const geminiService = {
 
   async getChatResponse(message: string, history: any[], lang: Language = 'en', personality: TutorPersonality = 'guide') {
     const systemInstruction = lang === 'en'
-      ? `${personalities.en[personality]} You are the EduBridge Tutor, a helpful local STEM tutor. Explain concepts clearly and concisely. Use LaTeX for math.`
-      : `${personalities.fr[personality]} Vous êtes le tuteur EduBridge, un tuteur STEM local utile. Expliquez les concepts clairement et concisément. Utilisez LaTeX pour les mathématiques.`;
+      ? `${personalities.en[personality]} You are the EduBridge Tutor, a helpful local STEM tutor. Explain concepts clearly and concisely. 
+         ALWAYS use LaTeX for all mathematical symbols, formulas, numbers in equations, and units. Use $...$ for inline and $$...$$ for blocks on their own lines. 
+         CRITICAL: NEVER repeat an equation, number, or variable in both plain text and LaTeX. Each equation must be presented EXACTLY ONCE. No text-only fallbacks. Use LaTeX ONLY for all mathematical content. Format lists clearly with Markdown.`
+      : `${personalities.fr[personality]} Vous êtes le tuteur EduBridge, un tuteur STEM local utile. Expliquez les concepts clairement et concisément. 
+         Utilisez TOUJOURS LaTeX pour tous les symboles mathématiques, formules, nombres dans les équations et unités. Utilisez $...$ pour le mode en ligne et $$...$$ pour les blocs sur leurs propres lignes. 
+         CRITIQUE : Ne répétez JAMAIS une équation, un nombre ou une variable en texte brut et en LaTeX. Chaque équation doit être présentée EXACTEMENT UNE FOIS. Pas de versions simplifiées. Utilisez UNIQUEMENT LaTeX pour tout contenu mathématique. Formatez les listes clairement avec Markdown.`;
 
     const contents = [
       ...history,

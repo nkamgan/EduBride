@@ -320,17 +320,22 @@ export default function App() {
   };
 
   const handleApiError = (err: any) => {
-    console.error(err);
-    if (err instanceof TutorError) {
+    console.error('API Error in App:', err);
+    
+    // Fallback check for TutorError if instanceof fails (e.g. across boundaries)
+    const isTutorError = err instanceof TutorError || 
+                         (err && typeof err === 'object' && 'type' in err && 'name' in err && err.name === 'TutorError');
+
+    if (isTutorError) {
       setApiError({ message: err.message, type: err.type });
     } else {
       setApiError({ 
-        message: lang === 'en' ? "An unexpected error occurred. Please try again." : "Une erreur inattendue s'est produite. Veuillez réessayer.", 
+        message: lang === 'en' ? "An unexpected error occurred. Please check your connectivity and try again." : "Une erreur inattendue s'est produite. Veuillez vérifier votre connexion et réessayer.", 
         type: 'UNKNOWN' 
       });
     }
-    // Auto-clear error after 5 seconds
-    setTimeout(() => setApiError(null), 5000);
+    // Auto-clear error after 8 seconds (slightly longer to allow reading)
+    setTimeout(() => setApiError(null), 8000);
   };
 
   const handleSolve = async () => {
