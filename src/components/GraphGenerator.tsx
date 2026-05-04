@@ -11,23 +11,29 @@ export const GraphGenerator: React.FC<GraphGeneratorProps> = ({ expression, lang
   const generateData = () => {
     const data = [];
     try {
-      // Very basic linear/quadratic parser for demo purposes
-      // real implementation would use mathjs or similar
-      const isQuadratic = expression.includes('x^2');
-      const isLinear = expression.includes('x') && !isQuadratic;
+      // Basic expression evaluator for demo purposes
+      // Support basic replacements for visual clarity
+      const cleanExpr = expression
+        .replace(/(\d)x/g, '$1*x') // 2x -> 2*x
+        .replace(/x\^2/g, 'x*x')
+        .replace(/sin/g, 'Math.sin')
+        .replace(/cos/g, 'Math.cos');
       
-      for (let x = -10; x <= 10; x += 1) {
+      for (let x = -10; x <= 10; x += 0.5) {
         let y = 0;
-        if (isQuadratic) y = x * x;
-        else if (isLinear) y = 2 * x + 3; // placeholder
-        else y = Math.sin(x);
-        
+        try {
+          const evalExpr = cleanExpr.replace(/x/g, `(${x})`);
+          y = eval(evalExpr);
+        } catch(e) {
+          y = 0;
+        }
+        if (isNaN(y) || !isFinite(y)) continue;
         data.push({ x, y });
       }
     } catch (e) {
       return [{ x: 0, y: 0 }];
     }
-    return data;
+    return data.length > 0 ? data : [{ x: 0, y: 0 }];
   };
 
   const data = generateData();
