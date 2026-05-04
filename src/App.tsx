@@ -309,18 +309,8 @@ export default function App() {
 
       const reader = new FileReader();
       reader.onloadend = () => {
-        const img = new Image();
-        img.onload = () => {
-          // 3. Validation: Minimum Resolution
-          if (img.width < 200 || img.height < 200) {
-            setUploadError(lang === 'en' ? 'Resolution too low. Image must be at least 200x200px.' : 'Résolution trop faible. L\'image doit faire au moins 200x200px.');
-            setImagePreview(null);
-            return;
-          }
-          setImagePreview(reader.result as string);
-          setCurrentSolution(null);
-        };
-        img.src = reader.result as string;
+        setImagePreview(reader.result as string);
+        setCurrentSolution(null);
       };
       reader.readAsDataURL(file);
     }
@@ -357,12 +347,6 @@ export default function App() {
       const video = videoRef.current;
       const canvas = canvasRef.current;
       
-      // Validation: Check check resolution of video stream
-      if (video.videoWidth < 200 || video.videoHeight < 200) {
-        setUploadError(lang === 'en' ? 'Video resolution too low for capture.' : 'Résolution vidéo trop faible pour la capture.');
-        return;
-      }
-
       canvas.width = video.videoWidth;
       canvas.height = video.videoHeight;
       const ctx = canvas.getContext('2d');
